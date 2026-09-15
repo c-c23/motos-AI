@@ -11,6 +11,7 @@ import json
 import streamlit as st
 from database import get_connection
 from queries.leads_queries import (
+    factores_score_desde_db,
     get_lead_by_id,
     get_mensajes_lead,
     get_eventos_lead,
@@ -123,17 +124,35 @@ with st.expander("💼 Información comercial", expanded=True):
 
     precio = lead.get("precio_lista")
     precio_str = f"${int(precio):,}".replace(",", ".") if precio else "—"
-    pago_ini = lead.get("pago_inicial")
-    pago_str = f"${int(pago_ini):,}".replace(",", ".") if pago_ini else "—"
     c2.write(f"**Precio lista:** {precio_str}")
-    c2.write(f"**Pago inicial:** {pago_str}")
-    c2.write(f"**Método de pago:** {lead.get('metodo_pago') or '—'}")
+    c2.write(f"**Empresa:** {lead.get('empresa') or '—'}")
+    c2.write(f"**Punto de venta:** {lead.get('punto_venta') or '—'}")
+    c3.write(f"**Prioridad:** {prioridad_str}")
+    c3.write(f"**Temperatura:** {temp_badge}")
+    c3.write(f"**Estado de gestión:** {lead.get('estado_gestion_normalizado') or '—'}")
 
-    c3.write(f"**Intención:** {lead.get('intencion_declarada') or '—'}")
-    c3.write(f"**Solicita cotización:** {'Sí' if lead.get('solicita_cotizacion') else 'No'}")
-    c3.write(f"**Solicita cita:** {'Sí' if lead.get('solicita_cita') else 'No'}")
-    if lead.get("objecion_principal"):
-        st.write(f"**Objeción principal:** {lead['objecion_principal']}")
+with st.expander("🤖 Extracción IA", expanded=True):
+    if not extraccion:
+        st.info("No existe extracción IA para este lead.")
+    else:
+        def mostrar_ia(valor):
+            if valor is None:
+                return "—"
+            if valor is True:
+                return "Sí"
+            if valor is False:
+                return "No"
+            return valor
+
+        c1, c2, c3 = st.columns(3)
+        pago = extraccion.get('pago_inicial')
+        c1.write(f"**Pago inicial:** {f'${int(pago):,}'.replace(',', '.') if pago is not None else '—'}")
+        c1.write(f"**Método de pago:** {mostrar_ia(extraccion.get('metodo_pago'))}")
+        c2.write(f"**Intención declarada:** {mostrar_ia(extraccion.get('intencion_declarada'))}")
+        c2.write(f"**Objeción principal:** {mostrar_ia(extraccion.get('objecion_principal'))}")
+        c3.write(f"**Solicita cotización:** {mostrar_ia(extraccion.get('solicita_cotizacion'))}")
+        c3.write(f"**Solicita cita:** {mostrar_ia(extraccion.get('solicita_cita'))}")
+        st.caption(f"Modelo: {extraccion.get('modelo_extraccion') or '—'} · Versión: {extraccion.get('version_extraccion') or '—'}")
 
 # ──────────────────────────────────────────────
 # Sección 3: IA / Scoring V1
@@ -146,29 +165,19 @@ with st.expander("🤖 IA / Scoring Operacional", expanded=True):
 
     if puntaje and puntaje.get("razones"):
         st.markdown("**Razones del score:**")
-        razones = puntaje["razones"]
-        if isinstance(razones, str):
-            razones = json.loads(razones)
-
-        if isinstance(razones, dict) and "tiempo" in razones:
-            t_info = razones.get("tiempo", {})
-            horas_v = t_info.get("horas", 0)
-            st.write(f"• Lead sin contacto durante **{horas_v} horas** (intervalo: `{t_info.get('bucket', '—')}`)")
-
-            cita_info = razones.get("pidio_cita", {})
-            if cita_info.get("valor"):
-                st.write("• **Solicitó cita**")
-            else:
-                st.write("• No solicitó cita")
-
-            cuota_info = razones.get("manifesto_cuota_inicial", {})
-            if cuota_info.get("valor"):
-                st.write("• **Manifestó cuota inicial**")
-            else:
-                st.write("• No manifestó cuota inicial")
+        factores = factores_score_desde_db(puntaje["razones"])
+        if factores:
+            for factor in factores:
+                st.write(f"• {factor}")
         else:
-            for k, v in razones.items():
-                st.write(f"  • **{k.replace('_', ' ').capitalize()}:** {v}")
+            # La razón permanece visible tal como fue persistida; no se infieren factores.
+            razones = puntaje["razones"]
+            if isinstance(razones, str):
+                try:
+                    razones = json.loads(razones)
+                except json.JSONDecodeError:
+                    pass
+            st.json(razones)
 
     if puntaje:
         st.caption(
@@ -186,6 +195,7 @@ with st.expander("📌 Asignación", expanded=True):
     c1.write(f"**Punto de venta:** {lead.get('punto_venta') or '—'}")
     c2.write(f"**Asesor asignado:** {lead.get('asesor') or 'Sin asignar'}")
     c2.write(f"**ID Asesor:** {lead.get('asesor_id') or '—'}")
+    c3.write(f"**Fecha de asignación:** {lead.get('asignado_en') or '—'}")
     c3.write(f"**Primer contacto:** {lead.get('primer_contacto_en') or '—'}")
 
 # ──────────────────────────────────────────────
@@ -193,7 +203,7 @@ with st.expander("📌 Asignación", expanded=True):
 # ──────────────────────────────────────────────
 with st.expander("💬 Conversación", expanded=True):
     if not mensajes:
-        st.info("No hay mensajes registrados para este lead.")
+        st.info("No hay conversación registrada.")
     else:
         for msg in mensajes:
             remitente = msg.get("remitente", "—")

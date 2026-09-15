@@ -1,202 +1,94 @@
-"""
-pages/2_Leads.py
------------------
-Bandeja principal de leads del CRM Motos AI Leads.
-Lista leads ordenados por prioridad, con filtros y búsqueda.
-Al seleccionar un lead, guarda el lead_id en session_state
-para que la página de detalle lo pueda leer.
-"""
+"""Bandeja operativa de solo lectura respaldada por PostgreSQL."""
 
 import pandas as pd
 import streamlit as st
+
 from database import get_connection
-from queries.leads_queries import get_leads, get_valores_filtros
+from queries.leads_queries import get_leads_bandeja, get_valores_filtros
 
-st.set_page_config(
-    page_title="Leads — Motos AI Leads",
-    page_icon="📋",
-    layout="wide",
-)
-
+st.set_page_config(page_title="Leads — Motos AI Leads", page_icon="📋", layout="wide")
 st.title("📋 Bandeja de leads")
-st.caption("Leads ordenados por puntaje de prioridad (mayor primero)")
+st.caption("Datos operativos persistidos; esta página no calcula scores ni asigna leads.")
 
-# ──────────────────────────────────────────────
-# Carga de datos
-# ──────────────────────────────────────────────
-@st.cache_data(ttl=30)
-def cargar_leads():
+
+@st.cache_data(ttl=60)
+def cargar_filtros():
     with get_connection() as conn:
-        leads = get_leads(conn)
-        filtros = get_valores_filtros(conn)
-    return leads, filtros
+        return get_valores_filtros(conn)
+
+
+@st.cache_data(ttl=30)
+def cargar_bandeja(**filtros):
+    with get_connection() as conn:
+        return get_leads_bandeja(conn, **filtros)
 
 
 try:
-    leads_raw, filtros = cargar_leads()
-except Exception as e:
-    st.error(f"Error cargando leads: {e}")
+    opciones = cargar_filtros()
+except Exception as exc:
+    st.error(f"No fue posible cargar los filtros: {exc}")
     st.stop()
 
-df = pd.DataFrame(leads_raw)
+empresas = {f"{item['empresa_id']} — {item['nombre']}": item['empresa_id'] for item in opciones['empresas']}
+empresa_label = st.sidebar.selectbox("Empresa", ["Todas"] + list(empresas))
+empresa_id = empresas.get(empresa_label)
+puntos = [item for item in opciones['puntos_venta'] if not empresa_id or item['empresa_id'] == empresa_id]
+puntos_map = {f"{item['punto_venta_id']} — {item['nombre']}": item['punto_venta_id'] for item in puntos}
+asesores = [item for item in opciones['asesores'] if not empresa_id or item['empresa_id'] == empresa_id]
+asesores_map = {f"{item['asesor_id']} — {item['nombre']}": item['asesor_id'] for item in asesores}
 
-# ──────────────────────────────────────────────
-# Sidebar — Filtros
-# ──────────────────────────────────────────────
 with st.sidebar:
     st.header("Filtros")
-
-    busqueda = st.text_input("Buscar por nombre o teléfono", "")
-
-    temperaturas_sel = st.multiselect(
-        "Temperatura",
-        options=filtros["temperaturas"],
-        default=[],
-    )
-    canales_sel = st.multiselect(
-        "Canal",
-        options=filtros["canales"],
-        default=[],
-    )
-    empresas_sel = st.multiselect(
-        "Empresa",
-        options=filtros["empresas"],
-        default=[],
-    )
-    puntos_sel = st.multiselect(
-        "Punto de venta",
-        options=filtros["puntos_venta"],
-        default=[],
-    )
-    asesores_sel = st.multiselect(
-        "Asesor",
-        options=filtros["asesores"],
-        default=[],
-    )
-    estados_sel = st.multiselect(
-        "Estado de gestión",
-        options=filtros["estados"],
-        default=[],
-    )
-
-    if st.button("Limpiar filtros"):
+    busqueda = st.text_input("Buscar nombre, teléfono o ID")
+    punto_label = st.selectbox("Punto de venta", ["Todos"] + list(puntos_map))
+    asesor_label = st.selectbox("Asesor", ["Todos"] + list(asesores_map))
+    canal = st.selectbox("Canal", ["Todos"] + opciones['canales'])
+    temperatura = st.selectbox("Temperatura", ["Todas"] + opciones['temperaturas'])
+    estado = st.selectbox("Estado de gestión", ["Todos"] + opciones['estados_normalizados'])
+    asignacion = st.selectbox("Asignación", ["Todas", "ASIGNADO", "SIN ASIGNAR"])
+    modelo = st.selectbox("Modelo / SKU", ["Todos"] + opciones['skus'])
+    if st.button("Actualizar datos"):
+        st.cache_data.clear()
         st.rerun()
 
-# ──────────────────────────────────────────────
-# Aplicar filtros
-# ──────────────────────────────────────────────
-df_filtrado = df.copy()
+filtros = {
+    "busqueda": busqueda or None, "empresa_id": empresa_id,
+    "punto_venta_id": puntos_map.get(punto_label), "asesor_id": asesores_map.get(asesor_label),
+    "canal": None if canal == "Todos" else canal,
+    "temperatura": None if temperatura == "Todas" else temperatura,
+    "estado_gestion": None if estado == "Todos" else estado,
+    "asignacion": None if asignacion == "Todas" else asignacion,
+    "sku": None if modelo == "Todos" else modelo,
+}
 
-if busqueda:
-    mask = (
-        df_filtrado["nombre_cliente"].str.contains(busqueda, case=False, na=False)
-        | df_filtrado["telefono"].str.contains(busqueda, case=False, na=False)
-    )
-    df_filtrado = df_filtrado[mask]
+try:
+    filas = cargar_bandeja(**filtros)
+except Exception as exc:
+    st.error(f"No fue posible cargar la bandeja: {exc}")
+    st.stop()
 
-if temperaturas_sel:
-    df_filtrado = df_filtrado[df_filtrado["temperatura"].isin(temperaturas_sel)]
-if canales_sel:
-    df_filtrado = df_filtrado[df_filtrado["canal"].isin(canales_sel)]
-if empresas_sel:
-    df_filtrado = df_filtrado[df_filtrado["empresa"].isin(empresas_sel)]
-if puntos_sel:
-    df_filtrado = df_filtrado[df_filtrado["punto_venta"].isin(puntos_sel)]
-if asesores_sel:
-    df_filtrado = df_filtrado[df_filtrado["asesor"].isin(asesores_sel)]
-if estados_sel:
-    df_filtrado = df_filtrado[df_filtrado["estado_gestion"].isin(estados_sel)]
+df = pd.DataFrame(filas)
+st.caption(f"{len(df)} leads encontrados · ordenados por prioridad, urgencia y fecha de registro.")
+if df.empty:
+    st.info("No hay leads para los filtros seleccionados.")
+    st.stop()
 
-st.caption(f"Mostrando {len(df_filtrado)} de {len(df)} leads")
+df['puntaje_prioridad'] = df['puntaje_prioridad'].map(lambda value: round(float(value), 2) if pd.notna(value) else None)
 
-# ──────────────────────────────────────────────
-# Función para badge de temperatura
-# ──────────────────────────────────────────────
-def badge_temperatura(t):
-    if t == "Crítico":
-        return "🔴 Crítico"
-    elif t == "Alto":
-        return "🟠 Alto"
-    elif t == "Medio":
-        return "🟡 Medio"
-    elif t == "Bajo":
-        return "🔵 Bajo"
-    elif t == "Caliente":
-        return "🔴 Caliente"
-    elif t == "Tibio":
-        return "🟡 Tibio"
-    elif t == "Frio":
-        return "🔵 Frío"
-    return "⚪ Sin score"
+def primer_valor(*valores):
+    return next((valor for valor in valores if pd.notna(valor) and str(valor).strip()), '—')
 
 
-def formatear_precio(v):
-    if v is None:
-        return "—"
-    return f"${int(v):,}".replace(",", ".")
-
-
-# ──────────────────────────────────────────────
-# Tabla de leads
-# ──────────────────────────────────────────────
-if df_filtrado.empty:
-    st.info("No hay leads que coincidan con los filtros seleccionados.")
-else:
-    # Preparar columnas para mostrar
-    df_vista = df_filtrado[[
-        "lead_id", "puntaje_prioridad", "temperatura", "modelo_scoring", "nombre_cliente",
-        "telefono", "canal", "linea", "marca", "pago_inicial",
-        "metodo_pago", "asesor", "estado_gestion",
-    ]].copy()
-
-    df_vista["temperatura"] = df_vista["temperatura"].apply(badge_temperatura)
-    df_vista["puntaje_prioridad"] = df_vista["puntaje_prioridad"].apply(
-        lambda x: round(float(x), 2) if x else None
-    )
-    df_vista["modelo_scoring"] = df_vista["modelo_scoring"].fillna("rules")
-    df_vista["pago_inicial"] = df_vista["pago_inicial"].apply(formatear_precio)
-    df_vista["moto"] = df_vista.apply(
-        lambda r: f"{r['marca']} {r['linea']}" if r["marca"] else "—", axis=1
-    )
-    df_vista["metodo_pago"] = df_vista["metodo_pago"].fillna("—")
-    df_vista["asesor"] = df_vista["asesor"].fillna("Sin asignar")
-
-    df_mostrar = df_vista[[
-        "lead_id", "puntaje_prioridad", "temperatura", "modelo_scoring", "nombre_cliente",
-        "telefono", "canal", "moto", "pago_inicial", "metodo_pago",
-        "asesor", "estado_gestion",
-    ]].rename(columns={
-        "lead_id":           "ID",
-        "puntaje_prioridad": "Prioridad",
-        "temperatura":       "Temperatura",
-        "modelo_scoring":    "Modelo",
-        "nombre_cliente":    "Cliente",
-        "telefono":          "Teléfono",
-        "canal":             "Canal",
-        "moto":              "Moto",
-        "pago_inicial":      "Inicial",
-        "metodo_pago":       "Pago",
-        "asesor":            "Asesor",
-        "estado_gestion":    "Estado",
-    })
-
-    # Mostrar tabla con selección de filas
-    event = st.dataframe(
-        df_mostrar,
-        use_container_width=True,
-        hide_index=True,
-        selection_mode="single-row",
-        on_select="rerun",
-        key="tabla_leads",
-    )
-
-    # ──────────────────────────────────────────────
-    # Selección de lead → navegar a detalle
-    # ──────────────────────────────────────────────
-    filas_sel = event.selection.rows if event.selection else []
-    if filas_sel:
-        idx = filas_sel[0]
-        lead_id = df_filtrado.iloc[idx]["lead_id"]
-        st.session_state["lead_id_seleccionado"] = lead_id
-        st.info(f"Lead seleccionado: **{lead_id}** — Ve a la página **Detalle Lead** para ver la ficha completa.")
-        st.page_link("pages/3_Detalle_Lead.py", label="Ver detalle del lead →", icon="🔍")
+df['modelo'] = df.apply(lambda row: primer_valor(row['linea'], row['texto_modelo_original'], row['sku_motocicleta']), axis=1)
+df['asesor_mostrar'] = df['asesor'].map(lambda valor: valor if pd.notna(valor) else 'SIN ASIGNAR')
+vista = df[['lead_id', 'nombre_cliente', 'empresa', 'punto_venta', 'canal', 'modelo', 'puntaje_prioridad', 'temperatura', 'estado_gestion_normalizado', 'estado_asignacion', 'asesor_mostrar', 'asignado_en', 'registrado_en']].rename(columns={
+    'lead_id': 'Lead', 'nombre_cliente': 'Nombre', 'empresa': 'Empresa', 'punto_venta': 'Punto de venta',
+    'modelo': 'Modelo / SKU', 'puntaje_prioridad': 'Score / prioridad', 'temperatura': 'Temperatura',
+    'estado_gestion_normalizado': 'Estado de gestión', 'estado_asignacion': 'Asignación',
+    'asesor_mostrar': 'Asesor asignado', 'asignado_en': 'Fecha asignación', 'registrado_en': 'Fecha de registro',
+})
+evento = st.dataframe(vista, use_container_width=True, hide_index=True, selection_mode='single-row', on_select='rerun')
+seleccion = evento.selection.rows if evento.selection else []
+if seleccion:
+    st.session_state['lead_id_seleccionado'] = df.iloc[seleccion[0]]['lead_id']
+    st.page_link('pages/3_Detalle_Lead.py', label='Ver detalle del lead', icon='🔎')
