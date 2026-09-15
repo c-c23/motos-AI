@@ -113,7 +113,15 @@ st.caption(f"Mostrando {len(df_filtrado)} de {len(df)} leads")
 # Función para badge de temperatura
 # ──────────────────────────────────────────────
 def badge_temperatura(t):
-    if t == "Caliente":
+    if t == "Crítico":
+        return "🔴 Crítico"
+    elif t == "Alto":
+        return "🟠 Alto"
+    elif t == "Medio":
+        return "🟡 Medio"
+    elif t == "Bajo":
+        return "🔵 Bajo"
+    elif t == "Caliente":
         return "🔴 Caliente"
     elif t == "Tibio":
         return "🟡 Tibio"
@@ -136,7 +144,7 @@ if df_filtrado.empty:
 else:
     # Preparar columnas para mostrar
     df_vista = df_filtrado[[
-        "lead_id", "puntaje_prioridad", "temperatura", "nombre_cliente",
+        "lead_id", "puntaje_prioridad", "temperatura", "modelo_scoring", "nombre_cliente",
         "telefono", "canal", "linea", "marca", "pago_inicial",
         "metodo_pago", "asesor", "estado_gestion",
     ]].copy()
@@ -145,6 +153,7 @@ else:
     df_vista["puntaje_prioridad"] = df_vista["puntaje_prioridad"].apply(
         lambda x: round(float(x), 2) if x else None
     )
+    df_vista["modelo_scoring"] = df_vista["modelo_scoring"].fillna("rules")
     df_vista["pago_inicial"] = df_vista["pago_inicial"].apply(formatear_precio)
     df_vista["moto"] = df_vista.apply(
         lambda r: f"{r['marca']} {r['linea']}" if r["marca"] else "—", axis=1
@@ -153,13 +162,14 @@ else:
     df_vista["asesor"] = df_vista["asesor"].fillna("Sin asignar")
 
     df_mostrar = df_vista[[
-        "lead_id", "puntaje_prioridad", "temperatura", "nombre_cliente",
+        "lead_id", "puntaje_prioridad", "temperatura", "modelo_scoring", "nombre_cliente",
         "telefono", "canal", "moto", "pago_inicial", "metodo_pago",
         "asesor", "estado_gestion",
     ]].rename(columns={
         "lead_id":           "ID",
         "puntaje_prioridad": "Prioridad",
         "temperatura":       "Temperatura",
+        "modelo_scoring":    "Modelo",
         "nombre_cliente":    "Cliente",
         "telefono":          "Teléfono",
         "canal":             "Canal",

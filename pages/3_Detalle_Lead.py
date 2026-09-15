@@ -64,7 +64,15 @@ if not lead:
 # Encabezado del lead
 # ──────────────────────────────────────────────
 def badge_temperatura(t):
-    if t == "Caliente":
+    if t == "Crítico":
+        return "🔴 Crítico"
+    elif t == "Alto":
+        return "🟠 Alto"
+    elif t == "Medio":
+        return "🟡 Medio"
+    elif t == "Bajo":
+        return "🔵 Bajo"
+    elif t == "Caliente":
         return "🔴 Caliente"
     elif t == "Tibio":
         return "🟡 Tibio"
@@ -75,12 +83,12 @@ def badge_temperatura(t):
 
 temp_badge = badge_temperatura(lead.get("temperatura"))
 prioridad = lead.get("puntaje_prioridad")
-prioridad_str = f"{float(prioridad):.2f}" if prioridad else "—"
+prioridad_str = f"{float(prioridad):.2f}" if prioridad is not None else "—"
 
 st.subheader(f"{lead['nombre_cliente']}  ·  {lead_id}")
 col_h1, col_h2, col_h3 = st.columns(3)
 col_h1.metric("Temperatura", temp_badge)
-col_h2.metric("Prioridad", prioridad_str)
+col_h2.metric("Prioridad Operacional", prioridad_str)
 col_h3.metric("Estado", lead.get("estado_gestion", "—"))
 
 st.divider()
@@ -128,21 +136,39 @@ with st.expander("💼 Información comercial", expanded=True):
         st.write(f"**Objeción principal:** {lead['objecion_principal']}")
 
 # ──────────────────────────────────────────────
-# Sección 3: IA / Scoring
+# Sección 3: IA / Scoring V1
 # ──────────────────────────────────────────────
-with st.expander("🤖 IA / Scoring", expanded=True):
+with st.expander("🤖 IA / Scoring Operacional", expanded=True):
     c1, c2, c3 = st.columns(3)
-    c1.metric("Probabilidad comercial", f"{float(lead['probabilidad_comercial']):.0%}" if lead.get("probabilidad_comercial") else "—")
-    c2.metric("Urgencia", f"{float(lead['puntaje_urgencia']):.2f}" if lead.get("puntaje_urgencia") else "—")
-    c3.metric("Prioridad", prioridad_str)
+    c1.metric("Puntaje de prioridad", prioridad_str)
+    c2.metric("Temperatura", temp_badge)
+    c3.metric("Modelo de scoring", puntaje.get("modelo_scoring", "—") if puntaje else "—")
 
     if puntaje and puntaje.get("razones"):
-        st.write("**Razones del score:**")
+        st.markdown("**Razones del score:**")
         razones = puntaje["razones"]
         if isinstance(razones, str):
             razones = json.loads(razones)
-        for k, v in razones.items():
-            st.write(f"  • **{k.replace('_', ' ').capitalize()}:** {v}")
+
+        if isinstance(razones, dict) and "tiempo" in razones:
+            t_info = razones.get("tiempo", {})
+            horas_v = t_info.get("horas", 0)
+            st.write(f"• Lead sin contacto durante **{horas_v} horas** (intervalo: `{t_info.get('bucket', '—')}`)")
+
+            cita_info = razones.get("pidio_cita", {})
+            if cita_info.get("valor"):
+                st.write("• **Solicitó cita**")
+            else:
+                st.write("• No solicitó cita")
+
+            cuota_info = razones.get("manifesto_cuota_inicial", {})
+            if cuota_info.get("valor"):
+                st.write("• **Manifestó cuota inicial**")
+            else:
+                st.write("• No manifestó cuota inicial")
+        else:
+            for k, v in razones.items():
+                st.write(f"  • **{k.replace('_', ' ').capitalize()}:** {v}")
 
     if puntaje:
         st.caption(

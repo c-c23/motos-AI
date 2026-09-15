@@ -1,12 +1,15 @@
 """
 services/extraction_service.py
 -------------------------------
-Servicio de extracción de información no estructurada a partir de mensajes.
+Servicio de extracción de información no estructurada a partir de mensajes de conversaciones.
+Refinado para el Piloto Controlado de la Fase 9C.1:
 
-Fase 2 - Paso 1: Detección de motocicleta basada en reglas y catálogo de PostgreSQL.
-Fase 2 - Paso 2: Detección de monto de pago inicial (evitando falsos positivos).
-Fase 2 - Paso 3: Extracción de señales comerciales (intención, cotización, cita).
-Fase 2 - Paso 4: Extracción de método de pago (Crédito, Contado).
+Reglas estrictas de preservación de NULL:
+  - `solicita_cita`: `True` (si solicita visita/cita), `False` (si rechaza explícitamente), `None` (si NO se menciona).
+  - `solicita_cotizacion`: `True` (si pide cotización/precio), `False` (si rechaza explícitamente), `None` (si NO se menciona).
+  - `pago_inicial`: int (monto extraído), `0` (si declara explícitamente no tener cuota inicial), `None` (si NO se menciona).
+  - `metodo_pago`: `'Crédito'`, `'Contado'`, `None` (si NO se menciona).
+  - `intencion_declarada`: `'Compra'`, `'Consulta'`, `None` (si no es clara).
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ NUMEROS_TEXTO = {
 
 # Palabras clave asociadas a cuota/pago inicial
 PALABRAS_INICIAL = [
-    "inicial", "cuota inicial", "pago inicial", "entrada", "enganche"
+    "inicial", "cuota inicial", "pago inicial", "entrada", "enganche", "palo", "palos"
 ]
 
 
@@ -47,8 +50,7 @@ def _obtener_textos_usuario(messages: list[dict]) -> list[str]:
 
 def extract_motocicleta(messages: list[dict], catalogo: list[dict]) -> str | None:
     """
-    Analiza los mensajes enviados por el usuario ('role': 'user') y detecta el SKU
-    de la motocicleta de interés usando el catálogo proporcionado.
+    Analiza los mensajes del usuario y detecta el SKU de la motocicleta usando el catálogo.
     """
     textos_raw = _obtener_textos_usuario(messages)
     if not textos_raw:
@@ -71,7 +73,7 @@ def extract_motocicleta(messages: list[dict], catalogo: list[dict]) -> str | Non
             score = 100
         else:
             palabra_principal = linea_tokens[0] if linea_tokens else ""
-            if re.search(r'\b' + re.escape(palabra_principal) + r'\b', texto_completo):
+            if palabra_principal and re.search(r'\b' + re.escape(palabra_principal) + r'\b', texto_completo):
                 score += 40
 
                 numeros_linea = re.findall(r'\d+', linea)
@@ -98,22 +100,54 @@ def extract_pago_inicial(messages: list[dict]) -> int | None:
     """
     Analiza los mensajes del usuario para extraer el monto de pago/cuota inicial.
 
-    Filtra rigurosamente los textos para requerir una asociación explícita con conceptos de 'inicial',
-    evitando confundirlo con el precio total de la motocicleta o presupuestos generales.
+    Valores posibles:
+      - int > 0: si menciona un monto explícito (ej. "1.500.000", "2 millones", "1 palos").
+      - 0: si declara explícitamente no tener inicial (ej. "no tengo con que dar la inicial", "0 millones").
+      - None: si NO se menciona cuota inicial en la conversación.
     """
     textos_raw = _obtener_textos_usuario(messages)
     if not textos_raw:
         return None
 
-    # Recorrer mensajes desde el más reciente hacia el más antiguo
+    texto_completo_norm = _normalizar_texto(" ".join(textos_raw))
+
+    # Detectar declaración explícita de CERO inicial
+    patrones_cero_inicial = [
+        "no tengo con que dar la inicial", "no tengo cuota inicial",
+        "sin cuota inicial", "sin inicial", "0 millones", "cero inicial",
+        "no tengo para la inicial"
+    ]
+    if any(p in texto_completo_norm for p in patrones_cero_inicial):
+        return 0
+
+    # Recorrer mensajes desde el más reciente
     for content_raw in reversed(textos_raw):
         content_norm = _normalizar_texto(content_raw)
 
-        # Validar si el mensaje contiene alguna palabra clave de cuota inicial
         if not any(kw in content_norm for kw in PALABRAS_INICIAL):
             continue
 
-        # 1. Millones expresados con dígitos (ej: "3 millones", "2.5 millones", "2,5 millones")
+        # 1. Coloquialismo "X palos" / "X palo" (ej: "1 palos", "2 palos")
+        match_palo = re.search(r'\b(\d+(?:[.,]\d+)?)\s*palo(?:s)?\b', content_norm)
+        if match_palo:
+            val_str = match_palo.group(1).replace(',', '.')
+            try:
+                val = float(val_str)
+                return int(val * 1_000_000)
+            except ValueError:
+                pass
+
+        # 2. Expresión "2000mil", "1500mil"
+        match_mil_combo = re.search(r'\b(\d{3,4})\s*mil\b', content_norm)
+        if match_mil_combo:
+            try:
+                num_k = int(match_mil_combo.group(1))
+                if num_k >= 500:  # 500 mil a 5000 mil
+                    return num_k * 1_000
+            except ValueError:
+                pass
+
+        # 3. Millones expresados con dígitos (ej: "3 millones", "2.5 millones")
         match_mil_num = re.search(r'(\d+(?:[.,]\d+)?)\s*millon(?:es)?', content_norm)
         if match_mil_num:
             val_str = match_mil_num.group(1).replace(',', '.')
@@ -123,7 +157,7 @@ def extract_pago_inicial(messages: list[dict]) -> int | None:
             except ValueError:
                 pass
 
-        # 2. Millones expresados en palabras (ej: "dos millones", "tres millones")
+        # 4. Millones expresados en palabras (ej: "dos millones")
         match_mil_word = re.search(
             r'\b(un|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s*millon(?:es)?\b',
             content_norm
@@ -134,7 +168,7 @@ def extract_pago_inicial(messages: list[dict]) -> int | None:
             if num:
                 return num * 1_000_000
 
-        # 3. Monto formateado con puntos o signo de pesos (ej: "$2.500.000", "1.800.000")
+        # 5. Monto formateado con puntos o signo pesos (ej: "$2.500.000", "1.800.000")
         match_dots = re.search(r'\$?\s*(\d{1,3}(?:\.\d{3})+)', content_raw)
         if match_dots:
             num_str = match_dots.group(1).replace('.', '')
@@ -143,7 +177,7 @@ def extract_pago_inicial(messages: list[dict]) -> int | None:
             except ValueError:
                 pass
 
-        # 4. Número entero sin separadores (ej: "3000000", "1800000")
+        # 6. Número entero sin separadores (ej: "3000000", "1800000")
         match_plain = re.search(r'\b(\d{6,8})\b', content_raw)
         if match_plain:
             try:
@@ -156,8 +190,10 @@ def extract_pago_inicial(messages: list[dict]) -> int | None:
 
 def extract_metodo_pago(messages: list[dict]) -> str | None:
     """
-    Analiza las expresiones del usuario para determinar si el método de pago deseado
-    es 'Crédito', 'Contado', o None si no se especifica.
+    Analiza el método de pago declarado:
+      - 'Crédito': si menciona crédito, financiada, cuotas, etc.
+      - 'Contado': si menciona pago de contado, efectivo, transferencia.
+      - None: si NO se menciona el método de pago.
     """
     textos_raw = _obtener_textos_usuario(messages)
     if not textos_raw:
@@ -166,9 +202,9 @@ def extract_metodo_pago(messages: list[dict]) -> str | None:
     texto_completo = _normalizar_texto(" ".join(textos_raw))
 
     patrones_credito = [
-        "credito", "financiar", "financiacion", "cuotas", "financiarla",
+        "credito", "financiar", "financiada", "financiacion", "cuotas", "financiarla",
         "por cuotas", "credito directo", "financiar el resto", "financiar resto",
-        "cuota mensual"
+        "cuota mensual", "estudio de credito"
     ]
     if any(p in texto_completo for p in patrones_credito):
         return "Crédito"
@@ -185,7 +221,7 @@ def extract_metodo_pago(messages: list[dict]) -> str | None:
 
 def extract_intencion(messages: list[dict]) -> str | None:
     """
-    Determina si la intención declarada explícita es 'Compra', 'Consulta', o None si es ambigua.
+    Determina si la intención declarada es 'Compra', 'Consulta', o None si es ambigua/no declarada.
     """
     textos_raw = _obtener_textos_usuario(messages)
     if not textos_raw:
@@ -204,7 +240,7 @@ def extract_intencion(messages: list[dict]) -> str | None:
     patrones_consulta = [
         "solo estoy averiguando", "solo averigando", "solo quiero informacion",
         "solo informacion", "conocer las opciones", "solo mirando", "mirando que motos",
-        "buscando opciones", "saber que motos"
+        "buscando opciones", "saber que motos", "averiguando por"
     ]
     if any(p in texto_completo for p in patrones_consulta):
         return "Consulta"
@@ -212,48 +248,73 @@ def extract_intencion(messages: list[dict]) -> str | None:
     return None
 
 
-def extract_solicita_cotizacion(messages: list[dict]) -> bool:
+def extract_solicita_cotizacion(messages: list[dict]) -> bool | None:
     """
-    Determina si el usuario solicita cotización o información de precio/costo.
+    Determina si el usuario solicita cotización:
+      - True: si solicita enviar o ver cotización / precio.
+      - False: si rechaza explícitamente una cotización.
+      - None: si NO se menciona cotización.
     """
     textos_raw = _obtener_textos_usuario(messages)
     if not textos_raw:
-        return False
+        return None
 
     texto_completo = _normalizar_texto(" ".join(textos_raw))
+
+    patrones_rechazo_cot = [
+        "no quiero cotizacion", "no me envie cotizacion", "no me mande cotizacion"
+    ]
+    if any(p in texto_completo for p in patrones_rechazo_cot):
+        return False
 
     patrones_cotizacion = [
-        "cotizar", "cotizacion", "cotizame", "cotizacon",
+        "cotizar", "cotizacion", "cotizame", "cotizacon", "enviemela", "mandela", "enviamela",
         "cuanto cuesta", "cuanto vale", "precio", "valor de la", "valor de una",
-        "cuanto sale"
+        "cuanto sale", "cuanto queda la cuota", "saber cuanto queda"
     ]
-    return any(p in texto_completo for p in patrones_cotizacion)
+    if any(p in texto_completo for p in patrones_cotizacion):
+        return True
+
+    return None
 
 
-def extract_solicita_cita(messages: list[dict]) -> bool:
+def extract_solicita_cita(messages: list[dict]) -> bool | None:
     """
-    Determina si el usuario solicita agendar una cita o visitar el punto de venta.
+    Determina si el usuario solicita cita o visita:
+      - True: si solicita agendar cita o ir a visitar la sede.
+      - False: si rechaza explícitamente visitar o agendar.
+      - None: si NO se menciona cita ni visita en la conversación.
     """
     textos_raw = _obtener_textos_usuario(messages)
     if not textos_raw:
-        return False
+        return None
 
     texto_completo = _normalizar_texto(" ".join(textos_raw))
 
-    patrones_cita = [
-        "cita", "agendar", "visitar el concesionario", "visitar la agencia",
-        "ir al concesionario", "ir a la agencia", "ir a ver", "pasar por el punto",
-        "pasar por el concesionario", "probar la moto", "test drive", "verla en persona",
-        "conocer la moto en persona"
+    patrones_rechazo_cita = [
+        "no puedo ir", "no voy a ir", "no puedo visitar", "no me agende cita"
     ]
-    return any(p in texto_completo for p in patrones_cita)
+    if any(p in texto_completo for p in patrones_rechazo_cita):
+        return False
+
+    patrones_cita = [
+        "cita", "agendar", "visitar el concesionario", "visitar la agencia", "visitar la sede",
+        "ir al concesionario", "ir a la agencia", "ir a ver", "pasar por el punto",
+        "pasar por el concesionario", "pasar manana", "probar la moto", "test drive",
+        "verla en persona", "conocer la moto en persona", "los puedo visitar", "los visito",
+        "a que hora los puedo visitar", "puedo pasar"
+    ]
+    if any(p in texto_completo for p in patrones_cita):
+        return True
+
+    return None
 
 
 def extract_conversation(messages: list[dict], catalogo: list[dict]) -> dict:
     """
     Función principal de extracción.
 
-    Devuelve un diccionario estructurado con los datos extraídos hasta el momento.
+    Devuelve un diccionario estructurado garantizando la regla de preservación de NULL.
     """
     sku = extract_motocicleta(messages, catalogo)
     pago_inicial = extract_pago_inicial(messages)

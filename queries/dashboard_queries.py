@@ -16,33 +16,37 @@ def get_kpis(conn: psycopg.Connection) -> dict:
     - total_leads
     - leads_asignados
     - leads_sin_asignar
-    - leads_calientes
-    - leads_tibios
-    - leads_frios
+    - leads_calientes (incluye Alto y Crítico)
+    - leads_tibios (incluye Medio)
+    - leads_frios (incluye Bajo)
     - leads_nuevos
+    - promedio_prioridad
     """
     with conn.cursor() as cur:
         cur.execute("""
             SELECT
-                COUNT(*)                                        AS total_leads,
-                COUNT(asesor_id)                               AS leads_asignados,
-                COUNT(*) FILTER (WHERE asesor_id IS NULL)      AS leads_sin_asignar,
-                COUNT(*) FILTER (WHERE temperatura = 'Caliente') AS leads_calientes,
-                COUNT(*) FILTER (WHERE temperatura = 'Tibio')    AS leads_tibios,
-                COUNT(*) FILTER (WHERE temperatura = 'Frio'
-                                    OR temperatura IS NULL)    AS leads_frios,
-                COUNT(*) FILTER (WHERE estado_gestion = 'Nuevo') AS leads_nuevos
+                COUNT(*)                                                       AS total_leads,
+                COUNT(asesor_id)                                              AS leads_asignados,
+                COUNT(*) FILTER (WHERE asesor_id IS NULL)                     AS leads_sin_asignar,
+                COUNT(*) FILTER (WHERE temperatura IN ('Caliente', 'Alto', 'Crítico')) AS leads_calientes,
+                COUNT(*) FILTER (WHERE temperatura IN ('Tibio', 'Medio'))             AS leads_tibios,
+                COUNT(*) FILTER (WHERE temperatura IN ('Frio', 'Bajo')
+                                    OR temperatura IS NULL)                   AS leads_frios,
+                COUNT(*) FILTER (WHERE estado_gestion = 'Nuevo')                AS leads_nuevos,
+                AVG(puntaje_prioridad) FILTER (WHERE puntaje_prioridad IS NOT NULL) AS promedio_prioridad
             FROM core.vw_leads_gestion;
         """)
         row = cur.fetchone()
+        prom = float(row[7]) if row[7] is not None else 0.0
         return {
-            "total_leads":       int(row[0]),
-            "leads_asignados":   int(row[1]),
-            "leads_sin_asignar": int(row[2]),
-            "leads_calientes":   int(row[3]),
-            "leads_tibios":      int(row[4]),
-            "leads_frios":       int(row[5]),
-            "leads_nuevos":      int(row[6]),
+            "total_leads":        int(row[0]),
+            "leads_asignados":    int(row[1]),
+            "leads_sin_asignar":  int(row[2]),
+            "leads_calientes":    int(row[3]),
+            "leads_tibios":       int(row[4]),
+            "leads_frios":        int(row[5]),
+            "leads_nuevos":       int(row[6]),
+            "promedio_prioridad": round(prom, 2),
         }
 
 

@@ -54,7 +54,7 @@ kpis = datos["kpis"]
 # ──────────────────────────────────────────────
 # Fila de KPIs
 # ──────────────────────────────────────────────
-c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
 c1.metric("Total", kpis["total_leads"])
 c2.metric("Nuevos", kpis["leads_nuevos"])
 c3.metric("Asignados", kpis["leads_asignados"])
@@ -62,6 +62,7 @@ c4.metric("Sin asignar", kpis["leads_sin_asignar"])
 c5.metric("🔴 Calientes", kpis["leads_calientes"])
 c6.metric("🟡 Tibios", kpis["leads_tibios"])
 c7.metric("🔵 Fríos", kpis["leads_frios"])
+c8.metric("⚡ Prom. Prioridad", kpis.get("promedio_prioridad", "—"))
 
 st.divider()
 

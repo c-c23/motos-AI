@@ -228,9 +228,12 @@ if mensajes:
 # ──────────────────────────────────────────────
 if st.session_state.get("ultimo_guardado"):
     info_g = st.session_state["ultimo_guardado"]
+    sc = info_g.get("scoring", {})
+    score_str = f"• **Puntaje de Prioridad V1:** `{sc.get('puntaje_prioridad', '—')}` | **Temperatura:** `{sc.get('temperatura', '—')}`\n" if sc else ""
     st.success(
         f"✅ **Conversación guardada exitosamente en PostgreSQL.**\n\n"
         f"• **Lead ID:** `{info_g['lead_id']}`\n"
-        f"• **Conversación ID:** `{info_g['conversacion_id']}`\n\n"
+        f"• **Conversación ID:** `{info_g['conversacion_id']}`\n"
+        f"{score_str}\n"
         f"Puedes consultar este nuevo lead en el **Dashboard** o la **Bandeja de Leads**."
     )

@@ -1,7 +1,7 @@
 """
 services/persistence_service.py
 --------------------------------
-Servicio para coordinar la persistencia de conversaciones simuladas y extracciones en PostgreSQL.
+Servicio para coordinar la persistencia de conversaciones simuladas, extracciones y scoring V1 en PostgreSQL.
 """
 
 from datetime import datetime
@@ -12,6 +12,7 @@ from queries.persistence_queries import (
     guardar_lead_completo_trx,
 )
 from services.extraction_service import extract_conversation
+from services.scoring_service import evaluar_y_guardar_scoring_lead
 
 
 def guardar_conversacion_simulada(
@@ -23,11 +24,12 @@ def guardar_conversacion_simulada(
     punto_venta_id: str = "PV-002",
 ) -> dict:
     """
-    Coordina el flujo completo de persistencia atómica:
+    Coordina el flujo completo de persistencia atómica y scoring V1:
     1. Ejecuta la extracción estructurada sobre los mensajes.
     2. Genera los IDs únicos secuenciales (LEAD-xxx, CONV-xxx).
     3. Construye los registros para leads, fuentes, conversaciones, mensajes y extracciones.
-    4. Ejecuta la transacción SQL en PostgreSQL.
+    4. Ejecuta la transacción SQL de la Fase 3 en PostgreSQL.
+    5. Ejecuta de forma independiente el scoring V1 y lo persiste en PostgreSQL.
 
     Args:
         messages: Lista de mensajes de la sesión simulada.
@@ -38,7 +40,7 @@ def guardar_conversacion_simulada(
         punto_venta_id: ID de punto de venta en PostgreSQL.
 
     Returns:
-        dict con 'lead_id', 'conversacion_id' y los datos de la extracción guardada.
+        dict con 'lead_id', 'conversacion_id', 'extraccion' y 'scoring'.
     """
     if not messages:
         raise ValueError("No se puede guardar una conversación sin mensajes.")
@@ -56,7 +58,7 @@ def guardar_conversacion_simulada(
         num_id = lead_id.split("-")[1] if "-" in lead_id else "006"
         tel = telefono or f"+57300000{num_id}"
 
-        # 3. Preparar paylods
+        # 3. Preparar payloads
         lead_data = {
             "lead_id": lead_id,
             "registrado_en": ahora,
@@ -70,7 +72,7 @@ def guardar_conversacion_simulada(
             "texto_modelo_original": extraccion.get("sku_motocicleta"),
             "sku_motocicleta": extraccion.get("sku_motocicleta"),
             "estado_gestion": "Nuevo",
-            "primer_contacto_en": ahora,
+            "primer_contacto_en": None,  # No contactado aún por asesor
             "campana": "Simulador Telegram",
         }
 
@@ -117,10 +119,18 @@ def guardar_conversacion_simulada(
             "version_extraccion": "v1.0",
         }
 
-        # 4. Ejecutar transacción
+        # 4. Ejecutar transacción Fase 3
         res = guardar_lead_completo_trx(
             conn, lead_data, fuente_data, conv_data, mensajes_data, extraccion_data
         )
 
     res["extraccion"] = extraccion
+
+    # 5. Ejecutar scoring V1 de forma desacoplada
+    try:
+        res_scoring = evaluar_y_guardar_scoring_lead(conn=None, lead_id=lead_id)
+        res["scoring"] = res_scoring
+    except Exception as e:
+        res["scoring_error"] = str(e)
+
     return res
