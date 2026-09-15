@@ -1,7 +1,7 @@
 """
 pages/3_Detalle_Lead.py
 ------------------------
-Ficha completa de un lead seleccionado.
+Ficha completa de un lead seleccionado — vista CRM.
 Lee el lead_id desde st.session_state["lead_id_seleccionado"].
 Muestra: información del cliente, datos comerciales, scoring IA,
 asignación, conversación (mensajes) e historial de eventos.
@@ -18,36 +18,36 @@ from queries.leads_queries import (
     get_extracciones_lead,
     get_puntaje_lead,
 )
+from styles.theme import (
+    COLORS, badge_temperatura, badge_asignacion, badge_ia,
+    get_global_css, section_header_html, info_field_html,
+)
 
 st.set_page_config(
     page_title="Detalle Lead — Motos AI Leads",
     page_icon="🔍",
     layout="wide",
 )
+st.markdown(get_global_css(), unsafe_allow_html=True)
 
-st.title("🔍 Detalle del lead")
-
-# ──────────────────────────────────────────────
-# Verificar que hay un lead seleccionado
-# ──────────────────────────────────────────────
+# ── Verificar que hay un lead seleccionado ────────────────────────────────────
 lead_id = st.session_state.get("lead_id_seleccionado")
 
 if not lead_id:
+    st.markdown("<div style='margin-top:2rem;'></div>", unsafe_allow_html=True)
     st.warning("Ningún lead seleccionado. Ve a la **Bandeja de leads** y selecciona uno.")
-    st.page_link("pages/2_Leads.py", label="Ir a la bandeja de leads →", icon="📋")
+    st.page_link("pages/2_Leads.py", label="← Ir a la bandeja de leads")
     st.stop()
 
-# ──────────────────────────────────────────────
-# Carga de datos del lead
-# ──────────────────────────────────────────────
+# ── Carga de datos del lead ───────────────────────────────────────────────────
 @st.cache_data(ttl=30)
 def cargar_lead(lid):
     with get_connection() as conn:
-        lead      = get_lead_by_id(conn, lid)
-        mensajes  = get_mensajes_lead(conn, lid)
-        eventos   = get_eventos_lead(conn, lid)
+        lead       = get_lead_by_id(conn, lid)
+        mensajes   = get_mensajes_lead(conn, lid)
+        eventos    = get_eventos_lead(conn, lid)
         extraccion = get_extracciones_lead(conn, lid)
-        puntaje   = get_puntaje_lead(conn, lid)
+        puntaje    = get_puntaje_lead(conn, lid)
     return lead, mensajes, eventos, extraccion, puntaje
 
 
@@ -61,116 +61,290 @@ if not lead:
     st.error(f"Lead {lead_id} no encontrado en la base de datos.")
     st.stop()
 
-# ──────────────────────────────────────────────
-# Encabezado del lead
-# ──────────────────────────────────────────────
-def badge_temperatura(t):
-    if t == "Crítico":
-        return "🔴 Crítico"
-    elif t == "Alto":
-        return "🟠 Alto"
-    elif t == "Medio":
-        return "🟡 Medio"
-    elif t == "Bajo":
-        return "🔵 Bajo"
-    elif t == "Caliente":
-        return "🔴 Caliente"
-    elif t == "Tibio":
-        return "🟡 Tibio"
-    elif t == "Frio":
-        return "🔵 Frío"
-    return "⚪ Sin score"
+# ── helpers locales ───────────────────────────────────────────────────────────
+def val(campo: str, default: str = "—") -> str:
+    """Devuelve el valor del lead como string o el default."""
+    v = lead.get(campo)
+    if v is None or str(v).strip() == "":
+        return default
+    return str(v)
 
 
-temp_badge = badge_temperatura(lead.get("temperatura"))
+def fmt_precio(campo: str) -> str:
+    precio = lead.get(campo)
+    if precio:
+        try:
+            return f"${int(precio):,}".replace(",", ".")
+        except Exception:
+            return str(precio)
+    return "—"
+
+
+def fmt_ia(valor) -> str:
+    if valor is None:
+        return "—"
+    if valor is True:
+        return "Sí"
+    if valor is False:
+        return "No"
+    return str(valor)
+
+
 prioridad = lead.get("puntaje_prioridad")
 prioridad_str = f"{float(prioridad):.2f}" if prioridad is not None else "—"
+temperatura = lead.get("temperatura")
 
-st.subheader(f"{lead['nombre_cliente']}  ·  {lead_id}")
-col_h1, col_h2, col_h3 = st.columns(3)
-col_h1.metric("Temperatura", temp_badge)
-col_h2.metric("Prioridad Operacional", prioridad_str)
-col_h3.metric("Estado", lead.get("estado_gestion", "—"))
+# ── Navegación de regreso ─────────────────────────────────────────────────────
+st.page_link("pages/2_Leads.py", label="← Volver a la bandeja")
 
-st.divider()
+# ── Encabezado de la ficha ────────────────────────────────────────────────────
+st.markdown("<div style='margin-top:0.5rem;'></div>", unsafe_allow_html=True)
 
-# ──────────────────────────────────────────────
-# Sección 1: Información del cliente
-# ──────────────────────────────────────────────
-with st.expander("👤 Información del cliente", expanded=True):
-    c1, c2, c3 = st.columns(3)
-    c1.write(f"**Nombre:** {lead.get('nombre_cliente', '—')}")
-    c1.write(f"**Teléfono:** {lead.get('telefono', '—')}")
-    c1.write(f"**Correo:** {lead.get('correo') or '—'}")
-    c2.write(f"**Ciudad:** {lead.get('ciudad') or '—'}")
-    c2.write(f"**Canal:** {lead.get('canal', '—')}")
-    c3.write(f"**Campaña:** {lead.get('campana') or '—'}")
-    c3.write(f"**Registrado:** {lead.get('registrado_en', '—')}")
+nombre = lead.get("nombre_cliente", "Cliente sin nombre")
+estado_gestion = val("estado_gestion_normalizado")
 
-# ──────────────────────────────────────────────
-# Sección 2: Información comercial
-# ──────────────────────────────────────────────
-with st.expander("💼 Información comercial", expanded=True):
-    c1, c2, c3 = st.columns(3)
+badge_temp_html = badge_temperatura(temperatura)
+badge_estado_asig_html = badge_asignacion(lead.get("estado_asignacion"))
 
-    moto_str = "—"
-    if lead.get("marca") and lead.get("linea"):
-        moto_str = f"{lead['marca']} {lead['linea']}"
-        if lead.get("cilindraje_cc"):
-            moto_str += f" {lead['cilindraje_cc']}cc"
-    c1.write(f"**Moto de interés:** {moto_str}")
-    c1.write(f"**SKU:** {lead.get('sku_motocicleta') or '—'}")
-    c1.write(f"**Segmento:** {lead.get('segmento') or '—'}")
+# Determinar color de borde según temperatura
+borde_temp = {
+    "Crítico": COLORS["critico_dot"],
+    "Alto":    COLORS["alto_dot"],
+    "Medio":   COLORS["medio_dot"],
+    "Bajo":    COLORS["bajo_dot"],
+}.get(temperatura, COLORS["border"])
 
-    precio = lead.get("precio_lista")
-    precio_str = f"${int(precio):,}".replace(",", ".") if precio else "—"
-    c2.write(f"**Precio lista:** {precio_str}")
-    c2.write(f"**Empresa:** {lead.get('empresa') or '—'}")
-    c2.write(f"**Punto de venta:** {lead.get('punto_venta') or '—'}")
-    c3.write(f"**Prioridad:** {prioridad_str}")
-    c3.write(f"**Temperatura:** {temp_badge}")
-    c3.write(f"**Estado de gestión:** {lead.get('estado_gestion_normalizado') or '—'}")
+st.markdown(
+    f"""<div style="background:{COLORS['bg_card']};border:1px solid {COLORS['border']};
+    border-left:5px solid {borde_temp};border-radius:10px;
+    padding:18px 24px;margin-bottom:1.25rem;">
+    <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;
+                letter-spacing:0.05em;color:{COLORS['text_muted']};margin-bottom:4px;">
+        Lead &nbsp;·&nbsp; {lead_id}
+    </div>
+    <div style="font-size:1.4rem;font-weight:700;color:{COLORS['text_main']};
+                margin-bottom:10px;line-height:1.2;">{nombre}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        {badge_temp_html}
+        {badge_estado_asig_html}
+        <span style="font-size:0.72rem;color:{COLORS['text_muted']};">
+            Score: <b style="color:{COLORS['text_main']};">{prioridad_str}</b>
+        </span>
+        <span style="font-size:0.72rem;color:{COLORS['text_muted']};">
+            Estado: <b style="color:{COLORS['text_main']};">{estado_gestion}</b>
+        </span>
+    </div>
+    </div>""",
+    unsafe_allow_html=True,
+)
 
-with st.expander("🤖 Extracción IA", expanded=True):
-    if not extraccion:
-        st.info("No existe extracción IA para este lead.")
+# ── Sección: Cliente + Comercial en dos columnas ─────────────────────────────
+st.markdown(section_header_html("Información del lead"), unsafe_allow_html=True)
+
+col_cliente, col_comercial = st.columns(2)
+
+with col_cliente:
+    st.markdown(
+        f"<div style='background:{COLORS['bg_card']};border:1px solid {COLORS['border']};"
+        f"border-radius:8px;padding:16px 20px;'>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<div style='font-size:0.68rem;font-weight:600;text-transform:uppercase;"
+        f"letter-spacing:0.05em;color:{COLORS['text_muted']};margin-bottom:12px;'>"
+        f"👤 Cliente</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(info_field_html("Nombre", val("nombre_cliente")), unsafe_allow_html=True)
+    st.markdown(info_field_html("Teléfono", val("telefono")), unsafe_allow_html=True)
+    st.markdown(info_field_html("Correo", val("correo")), unsafe_allow_html=True)
+    st.markdown(info_field_html("Ciudad", val("ciudad")), unsafe_allow_html=True)
+    st.markdown(info_field_html("Canal", val("canal")), unsafe_allow_html=True)
+    st.markdown(info_field_html("Campaña", val("campana")), unsafe_allow_html=True)
+    st.markdown(info_field_html("Registrado", val("registrado_en")), unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with col_comercial:
+    st.markdown(
+        f"<div style='background:{COLORS['bg_card']};border:1px solid {COLORS['border']};"
+        f"border-radius:8px;padding:16px 20px;'>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<div style='font-size:0.68rem;font-weight:600;text-transform:uppercase;"
+        f"letter-spacing:0.05em;color:{COLORS['text_muted']};margin-bottom:12px;'>"
+        f"💼 Interés comercial</div>",
+        unsafe_allow_html=True,
+    )
+    # Construir descripción de moto
+    marca = lead.get("marca")
+    linea = lead.get("linea")
+    cc = lead.get("cilindraje_cc")
+    if marca and linea:
+        moto_str = f"{marca} {linea}"
+        if cc:
+            moto_str += f" {cc}cc"
     else:
-        def mostrar_ia(valor):
-            if valor is None:
-                return "—"
-            if valor is True:
-                return "Sí"
-            if valor is False:
-                return "No"
-            return valor
+        moto_str = "—"
 
-        c1, c2, c3 = st.columns(3)
-        pago = extraccion.get('pago_inicial')
-        c1.write(f"**Pago inicial:** {f'${int(pago):,}'.replace(',', '.') if pago is not None else '—'}")
-        c1.write(f"**Método de pago:** {mostrar_ia(extraccion.get('metodo_pago'))}")
-        c2.write(f"**Intención declarada:** {mostrar_ia(extraccion.get('intencion_declarada'))}")
-        c2.write(f"**Objeción principal:** {mostrar_ia(extraccion.get('objecion_principal'))}")
-        c3.write(f"**Solicita cotización:** {mostrar_ia(extraccion.get('solicita_cotizacion'))}")
-        c3.write(f"**Solicita cita:** {mostrar_ia(extraccion.get('solicita_cita'))}")
-        st.caption(f"Modelo: {extraccion.get('modelo_extraccion') or '—'} · Versión: {extraccion.get('version_extraccion') or '—'}")
+    st.markdown(info_field_html("Moto de interés", moto_str), unsafe_allow_html=True)
+    st.markdown(info_field_html("SKU", val("sku_motocicleta")), unsafe_allow_html=True)
+    st.markdown(info_field_html("Segmento", val("segmento")), unsafe_allow_html=True)
+    st.markdown(info_field_html("Precio lista", fmt_precio("precio_lista")), unsafe_allow_html=True)
+    st.markdown(info_field_html("Empresa", val("empresa")), unsafe_allow_html=True)
+    st.markdown(info_field_html("Punto de venta", val("punto_venta")), unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# ──────────────────────────────────────────────
-# Sección 3: IA / Scoring V1
-# ──────────────────────────────────────────────
-with st.expander("🤖 IA / Scoring Operacional", expanded=True):
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Puntaje de prioridad", prioridad_str)
-    c2.metric("Temperatura", temp_badge)
-    c3.metric("Modelo de scoring", puntaje.get("modelo_scoring", "—") if puntaje else "—")
+# ── Sección: Asignación ───────────────────────────────────────────────────────
+st.markdown("<div style='margin-top:0.5rem;'></div>", unsafe_allow_html=True)
+st.markdown(section_header_html("Asignación"), unsafe_allow_html=True)
 
+asesor_nombre = lead.get("asesor") or "Sin asignar"
+asesor_id_val = val("asesor_id")
+fecha_asig = val("asignado_en")
+primer_contacto = val("primer_contacto_en")
+
+col_a1, col_a2, col_a3 = st.columns(3)
+with col_a1:
+    st.markdown(
+        f"<div style='background:{COLORS['bg_card']};border:1px solid {COLORS['border']};"
+        f"border-radius:8px;padding:14px 18px;'>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(info_field_html("Empresa", val("empresa")), unsafe_allow_html=True)
+    st.markdown(info_field_html("Punto de venta", val("punto_venta")), unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with col_a2:
+    st.markdown(
+        f"<div style='background:{COLORS['bg_card']};border:1px solid {COLORS['border']};"
+        f"border-radius:8px;padding:14px 18px;'>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(info_field_html("Asesor asignado", asesor_nombre), unsafe_allow_html=True)
+    st.markdown(info_field_html("ID Asesor", asesor_id_val), unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with col_a3:
+    st.markdown(
+        f"<div style='background:{COLORS['bg_card']};border:1px solid {COLORS['border']};"
+        f"border-radius:8px;padding:14px 18px;'>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(info_field_html("Fecha de asignación", fecha_asig), unsafe_allow_html=True)
+    st.markdown(info_field_html("Primer contacto", primer_contacto), unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ── Sección: Extracción IA ────────────────────────────────────────────────────
+st.markdown("<div style='margin-top:0.5rem;'></div>", unsafe_allow_html=True)
+st.markdown(
+    f"""<div style="margin: 1.5rem 0 0.75rem 0;">
+    <div style="display:flex;align-items:center;gap:8px;font-size:0.72rem;font-weight:600;
+                text-transform:uppercase;letter-spacing:0.07em;color:{COLORS['text_muted']};
+                border-bottom:2px solid {COLORS['border']};padding-bottom:6px;">
+        Extracción automática &nbsp;{badge_ia()}
+    </div>
+    </div>""",
+    unsafe_allow_html=True,
+)
+
+if not extraccion:
+    st.markdown(
+        f"<div style='background:{COLORS['bg_card']};border:1px solid {COLORS['border']};"
+        f"border-radius:8px;padding:14px 18px;color:{COLORS['text_muted']};font-size:0.875rem;'>"
+        f"No existe extracción IA para este lead.</div>",
+        unsafe_allow_html=True,
+    )
+else:
+    col_ia1, col_ia2, col_ia3 = st.columns(3)
+    pago = extraccion.get('pago_inicial')
+    pago_str = f"${int(pago):,}".replace(",", ".") if pago is not None else "—"
+
+    with col_ia1:
+        st.markdown(
+            f"<div style='background:{COLORS['ia_bg']};border:1px solid #C7D2FE;"
+            f"border-radius:8px;padding:14px 18px;'>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(info_field_html("Pago inicial", pago_str), unsafe_allow_html=True)
+        st.markdown(info_field_html("Método de pago", fmt_ia(extraccion.get('metodo_pago'))), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col_ia2:
+        st.markdown(
+            f"<div style='background:{COLORS['ia_bg']};border:1px solid #C7D2FE;"
+            f"border-radius:8px;padding:14px 18px;'>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(info_field_html("Intención declarada", fmt_ia(extraccion.get('intencion_declarada'))), unsafe_allow_html=True)
+        st.markdown(info_field_html("Objeción principal", fmt_ia(extraccion.get('objecion_principal'))), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col_ia3:
+        st.markdown(
+            f"<div style='background:{COLORS['ia_bg']};border:1px solid #C7D2FE;"
+            f"border-radius:8px;padding:14px 18px;'>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(info_field_html("Solicita cotización", fmt_ia(extraccion.get('solicita_cotizacion'))), unsafe_allow_html=True)
+        st.markdown(info_field_html("Solicita cita", fmt_ia(extraccion.get('solicita_cita'))), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    modelo_ext = extraccion.get('modelo_extraccion') or '—'
+    version_ext = extraccion.get('version_extraccion') or '—'
+    st.markdown(
+        f"<div style='font-size:0.72rem;color:{COLORS['text_light']};margin-top:4px;'>"
+        f"Modelo: <code>{modelo_ext}</code> &nbsp;·&nbsp; Versión: <code>{version_ext}</code></div>",
+        unsafe_allow_html=True,
+    )
+
+# ── Sección: Scoring ─────────────────────────────────────────────────────────
+st.markdown("<div style='margin-top:0.5rem;'></div>", unsafe_allow_html=True)
+st.markdown(section_header_html("Scoring operacional"), unsafe_allow_html=True)
+
+st.markdown(
+    f"<div style='background:{COLORS['bg_card']};border:1px solid {COLORS['border']};"
+    f"border-radius:8px;padding:16px 20px;'>",
+    unsafe_allow_html=True,
+)
+
+col_sc1, col_sc2 = st.columns([1, 2])
+with col_sc1:
+    st.markdown(info_field_html("Puntaje de prioridad", prioridad_str), unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='margin-bottom:10px;'>"
+        f"<div style='font-size:0.68rem;font-weight:600;text-transform:uppercase;"
+        f"letter-spacing:0.05em;color:{COLORS['text_light']};margin-bottom:4px;'>Temperatura</div>"
+        f"{badge_temperatura(temperatura)}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    if puntaje:
+        modelo_sc = puntaje.get('modelo_scoring', '—')
+        version_sc = puntaje.get('version_scoring', '—')
+        puntuado_en = puntaje.get('puntuado_en', '—')
+        st.markdown(info_field_html("Modelo", modelo_sc), unsafe_allow_html=True)
+        st.markdown(info_field_html("Versión", str(version_sc)), unsafe_allow_html=True)
+        st.markdown(info_field_html("Puntuado", str(puntuado_en)), unsafe_allow_html=True)
+
+with col_sc2:
     if puntaje and puntaje.get("razones"):
-        st.markdown("**Razones del score:**")
+        st.markdown(
+            f"<div style='font-size:0.68rem;font-weight:600;text-transform:uppercase;"
+            f"letter-spacing:0.05em;color:{COLORS['text_muted']};margin-bottom:8px;'>"
+            f"Factores del score</div>",
+            unsafe_allow_html=True,
+        )
         factores = factores_score_desde_db(puntaje["razones"])
         if factores:
             for factor in factores:
-                st.write(f"• {factor}")
+                st.markdown(
+                    f"<div style='font-size:0.85rem;color:{COLORS['text_main']};padding:4px 0;"
+                    f"border-bottom:1px solid {COLORS['border']};'>"
+                    f"<span style='color:{COLORS['primary_light']};margin-right:6px;'>›</span>{factor}</div>",
+                    unsafe_allow_html=True,
+                )
         else:
-            # La razón permanece visible tal como fue persistida; no se infieren factores.
             razones = puntaje["razones"]
             if isinstance(razones, str):
                 try:
@@ -179,31 +353,19 @@ with st.expander("🤖 IA / Scoring Operacional", expanded=True):
                     pass
             st.json(razones)
 
-    if puntaje:
-        st.caption(
-            f"Modelo: `{puntaje.get('modelo_scoring', '—')}` · "
-            f"Versión: `{puntaje.get('version_scoring', '—')}` · "
-            f"Puntuado: {puntaje.get('puntuado_en', '—')}"
-        )
+st.markdown("</div>", unsafe_allow_html=True)
 
-# ──────────────────────────────────────────────
-# Sección 4: Asignación
-# ──────────────────────────────────────────────
-with st.expander("📌 Asignación", expanded=True):
-    c1, c2, c3 = st.columns(3)
-    c1.write(f"**Empresa:** {lead.get('empresa') or '—'}")
-    c1.write(f"**Punto de venta:** {lead.get('punto_venta') or '—'}")
-    c2.write(f"**Asesor asignado:** {lead.get('asesor') or 'Sin asignar'}")
-    c2.write(f"**ID Asesor:** {lead.get('asesor_id') or '—'}")
-    c3.write(f"**Fecha de asignación:** {lead.get('asignado_en') or '—'}")
-    c3.write(f"**Primer contacto:** {lead.get('primer_contacto_en') or '—'}")
+# ── Sección: Conversación e Historial en Tabs ─────────────────────────────────
+st.markdown("<div style='margin-top:1rem;'></div>", unsafe_allow_html=True)
+tab_conv, tab_hist = st.tabs(["💬 Conversación", "📅 Historial de eventos"])
 
-# ──────────────────────────────────────────────
-# Sección 5: Conversación (mensajes)
-# ──────────────────────────────────────────────
-with st.expander("💬 Conversación", expanded=True):
+with tab_conv:
     if not mensajes:
-        st.info("No hay conversación registrada.")
+        st.markdown(
+            f"<div style='padding:16px;color:{COLORS['text_muted']};font-size:0.875rem;'>"
+            f"No hay conversación registrada.</div>",
+            unsafe_allow_html=True,
+        )
     else:
         for msg in mensajes:
             remitente = msg.get("remitente", "—")
@@ -222,12 +384,13 @@ with st.expander("💬 Conversación", expanded=True):
                     if hora_str:
                         st.caption(hora_str)
 
-# ──────────────────────────────────────────────
-# Sección 6: Historial de eventos
-# ──────────────────────────────────────────────
-with st.expander("📅 Historial de eventos", expanded=False):
+with tab_hist:
     if not eventos:
-        st.info("No hay eventos registrados para este lead.")
+        st.markdown(
+            f"<div style='padding:16px;color:{COLORS['text_muted']};font-size:0.875rem;'>"
+            f"No hay eventos registrados para este lead.</div>",
+            unsafe_allow_html=True,
+        )
     else:
         for ev in eventos:
             fecha = ev.get("fecha_evento")
@@ -238,18 +401,27 @@ with st.expander("📅 Historial de eventos", expanded=False):
             if isinstance(metadatos, str):
                 metadatos = json.loads(metadatos)
 
-            with st.container():
-                col_f, col_d = st.columns([1, 4])
-                col_f.caption(fecha_str)
-                detalle = f"**{tipo}**"
-                if asesor_ev:
-                    detalle += f" · {asesor_ev}"
-                if metadatos:
-                    extras = []
-                    if metadatos.get("temperatura"):
-                        extras.append(f"Temperatura: {metadatos['temperatura']}")
-                    if metadatos.get("puntaje_prioridad"):
-                        extras.append(f"Prioridad: {metadatos['puntaje_prioridad']}")
-                    if extras:
-                        detalle += " · " + " · ".join(extras)
-                col_d.write(detalle)
+            extras = []
+            if metadatos.get("temperatura"):
+                extras.append(f"Temperatura: {metadatos['temperatura']}")
+            if metadatos.get("puntaje_prioridad"):
+                extras.append(f"Prioridad: {metadatos['puntaje_prioridad']}")
+
+            detalle_extra = (" &nbsp;·&nbsp; " + " &nbsp;·&nbsp; ".join(extras)) if extras else ""
+            asesor_str = (f" &nbsp;·&nbsp; {asesor_ev}") if asesor_ev else ""
+
+            st.markdown(
+                f"<div style='display:flex;gap:16px;padding:8px 0;"
+                f"border-bottom:1px solid {COLORS['border']};align-items:flex-start;'>",
+                unsafe_allow_html=True,
+            )
+            col_f, col_d = st.columns([1, 4])
+            col_f.markdown(
+                f"<span style='font-size:0.72rem;color:{COLORS['text_light']};'>{fecha_str}</span>",
+                unsafe_allow_html=True,
+            )
+            col_d.markdown(
+                f"<span style='font-size:0.85rem;font-weight:600;color:{COLORS['text_main']};'>{tipo}</span>"
+                f"<span style='font-size:0.8rem;color:{COLORS['text_muted']};'>{asesor_str}{detalle_extra}</span>",
+                unsafe_allow_html=True,
+            )
