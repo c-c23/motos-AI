@@ -1,6 +1,6 @@
 # motos-AI
 
-> Sistema inteligente de ingesta, extracción NLP, scoring híbrido y asignación automática multiempresa de leads comerciales para el sector de motocicletas.
+> Sistema inteligente de ingesta, extracción (ctualmente es extracción determinista basada en reglas/patrones), scoring híbrido y asignación automática multiempresa de leads comerciales para el sector de motocicletas.
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
@@ -27,7 +27,7 @@ Este enfoque tradicional FIFO (*First-In, First-Out*) genera problemas críticos
 
 **motos-AI** transforma la bandeja de entrada comercial mediante un pipeline automatizado, explicable y desacoplado que:
 
-1. **Ingiere y normaliza** prospectos y conversaciones multicanal (WhatsApp, Meta Ads, Formularios Web).
+1. **Ingiere y normaliza** datos de leads y conversaciones provenientes de fuentes estructuradas (CSV/JSON), con un diseño preparado para incorporar conectores multicanal.
 2. **Extrae atributos comerciales** no estructurados desde conversaciones mediante reglas NLP deterministas con preservación estricta de valores ausentes (`NULL`).
 3. **Calcula un scoring de prioridad híbrido (0–100)** basado en un modelo principal de **Regresión Logística** entrenado sobre datos históricos y un modelo **Rules Fallback** determinista para prospectos sin historial conversacional.
 4. **Asigna automáticamente los prospectos** a los asesores comerciales garantizando aislamiento multiempresa, compatibilidad de punto de venta y balanceo por menor carga relativa.
@@ -124,7 +124,7 @@ sequenceDiagram
 * **Extracción de Información No Estructurada:** Procesamiento de conversaciones para capturar SKU de motocicleta, cuota inicial, forma de pago declarada (crédito vs. contado), solicitud de cotización y solicitud de citas.
 * **Scoring Híbrido Explicable:** Calificación continua de 0 a 100 con desglose auditable de motivos en formato JSONB.
 * **Asignación Automática Balanceada:** Algoritmo de asignación con aislamiento corporativo multiempresa y optimización por menor carga relativa.
-* **Tablero de Control Operacional:** Métricas clave en tiempo real (KPIs de volumen, tiempos, distribución de temperaturas y avance de gestión).
+* **Tablero de Control Operacional:** Métricas clave actualizados directamente desde PostgreSQL (KPIs de volumen, tiempos, distribución de temperaturas y avance de gestión).
 * **Ficha CRM Detallada:** Vista integral del cliente con especificaciones del modelo cotizado, historial de mensajes y bitácora de eventos.
 * **Simulador Conversacional Guiado:** Interfaz interactiva para reproducir flujos de mensajería con máquina de estados finitos (FSM) y persistencia en vivo.
 * **Orquestador de Pipeline:** Ejecución unificada por consola con soporte para modo simulación (`--dry-run`) y reporte estructurado en Markdown.
@@ -159,7 +159,7 @@ El sistema decide dinámicamente qué modelo aplicar según la presencia de señ
 
 #### 1. Modelo Principal: Regresión Logística V1
 * **Entrenamiento:** Entrenado sobre 2.200 registros históricos independientes (`core.historico_cierres`, casos `HX-00001` a `HX-02200`).
-* **Desempeño:** ROC-AUC de 0.611–0.629, PR-AUC de 0.138–0.152, con un **Lift@10% de 1.56x** (la tasa de conversión en el 10% superior sube de 9.75% a 15.3%–16.4%).
+* **Desempeño:** ROC-AUC de 0.611–0.629, PR-AUC de 0.138–0.152, con un **Lift@10% de 1.56x** (la tasa de estimada en el 10% superior sube de 9.75% a 15.3%–16.4%). Métricas obtenidas sobre el esquema de validación utilizado durante el entrenamiento de V1; no deben interpretarse como desempeño garantizado en producción.
 * **Variables y Coeficientes:**
   * $\text{log\_horas} = \ln(1 + \text{horas\_espera})$: Coeficiente **`-0.2550`** (modela el decaimiento continuo sin rupturas discretas).
   * $\text{pidio\_cita}$: Coeficiente **`+0.3068`**
@@ -288,8 +288,8 @@ erDiagram
 
 ## 9. Persistencia e Infraestructura
 
-* **Motor Relacional:** PostgreSQL 15+ (desplegado sobre Supabase como PostgreSQL administrado).
-* **Driver de Acceso:** `psycopg` v3.3+ con soporte nativo de adaptadores de tipos y transacciones context-managed.
+* **Motor Relacional:** PostgreSQL / Supabase | 18.6 local / 17.6 Supabase.
+* **Driver de Acceso:** `psycopg` 3.3.5 | Conexión a PostgreSQL mediante Session Pooler de   Supabase. Supabase permite utilizar un endpoint de pooling administrado para la conexión PostgreSQL.
 * **Control de Concurrencia:** Uso de **PostgreSQL Advisory Locks** (`pg_advisory_xact_lock`) en los procesos masivos de scoring y asignación para evitar colisiones entre trabajadores concurrentes.
 * **Idempotencia y Trazabilidad:** Los cambios de asignación y scoring no eliminan filas anteriores: desactivan el registro vigente (`es_actual = false`) e insertan una nueva versión, asegurando una pista de auditoría inmutable.
 
@@ -302,7 +302,7 @@ La interfaz de usuario está construida en Streamlit y estructurada en 4 módulo
 | Página | Ruta | Propósito |
 | :--- | :--- | :--- |
 | **Inicio / Resumen** | `app.py` | Métricas operacionales consolidadas, distribución por temperatura y accesos rápidos. |
-| **Dashboard Operativo** | `pages/1_Dashboard.py` | Tablero de control analítico en tiempo real con selector de empresa, gráficos de barras de volumen por sede, embudo de gestión e histograma de puntajes. |
+| **Dashboard Operativo** | `pages/1_Dashboard.py` | Tablero de control analítico con metricas actualizados directamente desde PostgreSQL con selector de empresa, gráficos de barras de volumen por sede, embudo de gestión e histograma de puntajes. |
 | **Bandeja de Leads** | `pages/2_Leads.py` | Lista de trabajo comercial ordenada por prioridad con filtros de empresa, punto de venta, canal, asesor y estado de asignación. |
 | **Detalle de Lead** | `pages/3_Detalle_Lead.py` | Ficha 360° con datos del prospecto, especificaciones técnicas de la moto cotizada, variables extraídas por IA, desglose explicable del score y cronología de mensajes. |
 | **Simulador de Chat** | `pages/4_Simulador_Telegram.py` | Consola interactiva de simulación de diálogo con motor FSM, slot-filling guiado, extracción NLP en vivo y persistencia transaccional en PostgreSQL. |
