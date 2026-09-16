@@ -54,5 +54,6 @@ watchdog==6.0.0
 websockets==16.1.1
 joblib==1.6.0
 scikit-learn==1.7.2
-
+python-telegram-bot==22.8
 fastapi==0.141.1
+requests==2.34.2
