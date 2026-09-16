@@ -2,12 +2,16 @@
 venv/
 .venv/
 
-# Variables de entorno
+# Variables de entorno y secretos
 .env
+.env.*
+!.env.example
 
 # Python
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
 *.egg-info/
 
 # Jupyter
@@ -26,4 +30,25 @@ data/processed/
 .DS_Store
 Thumbs.db
 
+# Reportes generados
 reports/
+
+# Backups de bases de datos
+*.dump
+*.backup
+*.sql
+
+# Scripts temporales de conexión / diagnóstico
+check_supabase.py
+test_supabase.py
+test_db.py
+
+# Documentación de trabajo / interna
+SCORING_V1.md
+DATA_MAPPING.md
+
+# Datos reales/sintéticos del assessment
+archivosreales/
+
+# Scripts temporales
+scripts/_tmp_*.py
