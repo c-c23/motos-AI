@@ -197,7 +197,7 @@ accesos = [
     ("📊", "Dashboard", "Métricas consolidadas, analítica por punto de venta y tendencias.", "Dashboard", "Ver Dashboard  ➔"),
     ("📋", "Bandeja Leads", "Filtra, prioriza y consulta la lista completa de prospectos activos.", "Leads", "Ir a Bandeja  ➔"),
     ("🔍", "Detalle Lead", "Ficha 360°, extracción IA, histórico de scoring y asignación.", "Detalle_Lead", "Consultar Lead  ➔"),
-    ("💬", "Simulador", "Prueba el flujo de ingesta, extracción e integración con whatsapp .", "Simulador_Telegram", "Abrir Simulador  ➔"),
+    ("💬", "Simulador WhatsApp", "Prueba el flujo de ingesta, extracción e integración con WhatsApp.", "Simulador_Telegram", "Abrir Simulador  ➔"),
 ]
 
 tarjetas_acceso = "".join(
