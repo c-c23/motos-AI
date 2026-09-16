@@ -11,24 +11,22 @@ from psycopg.rows import dict_row
 
 
 def get_next_lead_id(conn: psycopg.Connection) -> str:
-    """
-    Genera el siguiente lead_id secuencial (ej. LEAD-006).
-    """
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT lead_id FROM core.leads
-            WHERE lead_id LIKE 'LEAD-%'
-            ORDER BY lead_id DESC
+            SELECT lead_id
+            FROM core.leads
+            WHERE lead_id ~ '^LD-[0-9]+$'
+            ORDER BY CAST(SUBSTRING(lead_id FROM 4) AS INTEGER) DESC
             LIMIT 1;
         """)
+
         row = cur.fetchone()
+
         if not row:
-            return "LEAD-001"
-        try:
-            ultimo_num = int(row[0].split("-")[1])
-            return f"LEAD-{ultimo_num + 1:03d}"
-        except Exception:
-            return f"LEAD-{datetime.now().strftime('%M%S')}"
+            return "LD-00001"
+
+        ultimo_num = int(row[0].split("-")[1])
+        return f"LD-{ultimo_num + 1:05d}"
 
 
 def get_next_conversacion_id(conn: psycopg.Connection) -> str:
