@@ -16,6 +16,7 @@ from database import get_connection
 from queries.leads_queries import get_catalogo_motocicletas
 from services.extraction_service import extract_conversation
 from services.persistence_service import guardar_conversacion_simulada
+from services.conversation_engine import process_turn, EstadoConversacional, build_extraction_view
 from styles.theme import COLORS, badge_temperatura, badge_asignacion, get_global_css
 
 # ──────────────────────────────────────────────
@@ -350,6 +351,9 @@ if "sim_mensajes" not in st.session_state:
 if "ultimo_guardado" not in st.session_state:
     st.session_state["ultimo_guardado"] = None
 
+if "estado_conversacional" not in st.session_state:
+    st.session_state["estado_conversacional"] = None
+
 # ── Hero Banner ──────────────────────────────────────────────────────────────
 st.markdown(
     """
@@ -431,9 +435,13 @@ def respuesta_bot(texto: str) -> str:
     return "Entendido. ¿Puedes contarme un poco más para poder ayudarte mejor?"
 
 
-# ── Extracción previa para reactividad en la interfaz ─────────────────────────
+# ── Extracción acumulada unificada (NLP + EstadoConversacional) ───────────────
 mensajes = st.session_state["sim_mensajes"]
-extraccion = extract_conversation(mensajes, catalogo) if mensajes else {}
+estado_dict = st.session_state.get("estado_conversacional")
+estado_actual = EstadoConversacional.from_dict(estado_dict) if estado_dict else EstadoConversacional()
+
+raw_nlp = extract_conversation(mensajes, catalogo) if mensajes else {}
+extraccion = build_extraction_view(estado_actual, raw_nlp) if mensajes else {}
 
 sku_detectado = extraccion.get("sku_motocicleta")
 pago_detectado = extraccion.get("pago_inicial")
@@ -441,6 +449,7 @@ metodo_pago = extraccion.get("metodo_pago")
 intencion = extraccion.get("intencion_declarada")
 solicita_cot = extraccion.get("solicita_cotizacion")
 solicita_cit = extraccion.get("solicita_cita")
+ciudad_sede_val = extraccion.get("ciudad_sede")
 
 moto_info = catalogo_by_sku.get(sku_detectado) if sku_detectado else None
 nombre_moto = f"{moto_info['marca']} {moto_info['linea']}" if moto_info else None
@@ -521,7 +530,16 @@ with col_chat:
                 "hora": hora_ahora,
             })
 
-            respuesta = respuesta_bot(texto_usuario)
+            estado_dict = st.session_state.get("estado_conversacional")
+            estado_previo = EstadoConversacional.from_dict(estado_dict) if estado_dict else None
+
+            respuesta, nuevo_estado = process_turn(
+                st.session_state["sim_mensajes"],
+                catalogo,
+                estado_previo=estado_previo
+            )
+            st.session_state["estado_conversacional"] = nuevo_estado.to_dict()
+
             st.session_state["sim_mensajes"].append({
                 "role": "assistant",
                 "content": respuesta,
@@ -553,6 +571,7 @@ with col_chat:
                                 nombre_cliente="Cliente WhatsApp Simulado",
                                 empresa_id="EMP-01",
                                 punto_venta_id="PV-002",
+                                extraccion_override=extraccion,
                             )
                             st.session_state["ultimo_guardado"] = res_persistencia
                             st.cache_data.clear()
@@ -564,6 +583,7 @@ with col_chat:
                 if st.button("↺  Limpiar chat", type="secondary", use_container_width=True):
                     st.session_state["sim_mensajes"] = []
                     st.session_state["ultimo_guardado"] = None
+                    st.session_state["estado_conversacional"] = None
                     st.rerun()
 
         # Notificación elegante de guardado exitoso
@@ -652,8 +672,13 @@ with col_ia:
 
     # 2. Cuota inicial / Pago inicial
     card_pago_cls = "ia-entity-card detected" if pago_detectado is not None else "ia-entity-card"
-    if pago_detectado is not None:
-        if pago_detectado > 0:
+    if pago_detectado == "NO_APLICA":
+        pago_val_html = """
+        <span style="color:#64748B;">No aplica (Contado)</span>
+        <span class="ia-badge-pill" style="background:#F1F5F9; color:#475569;">No aplica</span>
+        """
+    elif pago_detectado is not None:
+        if isinstance(pago_detectado, (int, float)) and pago_detectado > 0:
             pago_str = f"${int(pago_detectado):,}".replace(",", ".")
             pago_val_html = f"""
             <span style="color:#047857;">{pago_str}</span>
@@ -748,6 +773,18 @@ with col_ia:
             <div class="{card_cit_cls}">
               <div class="ia-entity-label">📅 Cita en Agencia</div>
               <div class="ia-entity-value">{cit_html}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # 5. Sede / Ciudad
+    if ciudad_sede_val:
+        st.markdown(
+            f"""
+            <div class="ia-entity-card detected">
+              <div class="ia-entity-label">📍 Sede / Ciudad</div>
+              <div class="ia-entity-value"><span style="color:#0F172A; font-weight:700;">{html.escape(ciudad_sede_val)}</span></div>
             </div>
             """,
             unsafe_allow_html=True,

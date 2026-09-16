@@ -22,31 +22,22 @@ def guardar_conversacion_simulada(
     telefono: str | None = None,
     empresa_id: str = "EMP-01",
     punto_venta_id: str = "PV-002",
+    extraccion_override: dict | None = None,
 ) -> dict:
     """
     Coordina el flujo completo de persistencia atómica y scoring V1:
-    1. Ejecuta la extracción estructurada sobre los mensajes.
+    1. Ejecuta la extracción estructurada sobre los mensajes (o usa extraccion_override).
     2. Genera los IDs únicos secuenciales (LEAD-xxx, CONV-xxx).
     3. Construye los registros para leads, fuentes, conversaciones, mensajes y extracciones.
     4. Ejecuta la transacción SQL de la Fase 3 en PostgreSQL.
     5. Ejecuta de forma independiente el scoring V1 y lo persiste en PostgreSQL.
-
-    Args:
-        messages: Lista de mensajes de la sesión simulada.
-        catalogo: Catálogo activo de motocicletas.
-        nombre_cliente: Nombre asignado al lead simulado.
-        telefono: Teléfono asignado (si no se provee, se genera uno basado en el ID).
-        empresa_id: ID de empresa en PostgreSQL.
-        punto_venta_id: ID de punto de venta en PostgreSQL.
-
-    Returns:
-        dict con 'lead_id', 'conversacion_id', 'extraccion' y 'scoring'.
     """
     if not messages:
         raise ValueError("No se puede guardar una conversación sin mensajes.")
 
     # 1. Obtener la extracción estructurada actual
-    extraccion = extract_conversation(messages, catalogo)
+    raw_ext = extract_conversation(messages, catalogo)
+    extraccion = extraccion_override or raw_ext
 
     ahora = datetime.now()
 
@@ -68,7 +59,7 @@ def guardar_conversacion_simulada(
             "nombre_cliente": nombre_cliente,
             "telefono": tel,
             "correo": None,
-            "ciudad": "Armenia",
+            "ciudad": extraccion.get("ciudad_sede") or "Armenia",
             "texto_modelo_original": extraccion.get("sku_motocicleta"),
             "sku_motocicleta": extraccion.get("sku_motocicleta"),
             "estado_gestion": "Nuevo",
@@ -105,11 +96,14 @@ def guardar_conversacion_simulada(
                 "orden_mensaje": idx,
             })
 
+        pago_inicial_val = extraccion.get("pago_inicial")
+        pago_inicial_sql = pago_inicial_val if isinstance(pago_inicial_val, (int, float)) else None
+
         extraccion_data = {
             "lead_id": lead_id,
             "conversacion_id": conv_id,
             "sku_motocicleta": extraccion.get("sku_motocicleta"),
-            "pago_inicial": extraccion.get("pago_inicial"),
+            "pago_inicial": pago_inicial_sql,
             "metodo_pago": extraccion.get("metodo_pago"),
             "intencion_declarada": extraccion.get("intencion_declarada"),
             "objecion_principal": None,
