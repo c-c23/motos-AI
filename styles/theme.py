@@ -100,8 +100,84 @@ html, body, [class*="css"] {{
 
 /* ── Sidebar ── */
 [data-testid="stSidebar"] {{
-    background-color: {c['bg_card']};
-    border-right: 1px solid {c['border']};
+    position: relative;
+    background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+    border-right: 1px solid #334155;
+}}
+[data-testid="stSidebar"] > div:first-child {{
+    background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+}}
+[data-testid="stSidebar"] [data-testid="stSidebarNav"] {{
+    padding: 1.15rem .8rem 5.5rem;
+}}
+[data-testid="stSidebar"] [data-testid="stSidebarNav"]::before {{
+    content: "🏍️  Motos AI Leads\A CRM INTELLIGENCE";
+    white-space: pre-line;
+    display: block;
+    padding: .15rem .55rem 1.15rem;
+    margin: 0 .15rem 1rem;
+    border-bottom: 1px solid #334155;
+    color: #F8FAFC;
+    font-size: .98rem;
+    font-weight: 700;
+    line-height: 1.65;
+}}
+[data-testid="stSidebar"] [data-testid="stSidebarNav"]::after {{
+    content: none;
+}}
+[data-testid="stSidebar"]::after {{
+    content: "Estado del sistema\A●  PostgreSQL activo";
+    white-space: pre-line;
+    position: absolute;
+    right: 1rem;
+    bottom: 1.1rem;
+    left: 1rem;
+    box-sizing: border-box;
+    padding: .7rem .75rem;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    background: #1E293B;
+    color: #BBF7D0;
+    font-size: .72rem;
+    font-weight: 600;
+    line-height: 1.7;
+}}
+[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul {{
+    gap: .2rem;
+}}
+[data-testid="stSidebar"] [data-testid="stSidebarNavLink"] {{
+    min-height: 2.55rem;
+    border-radius: 8px;
+    color: #E0F2FE !important;
+    font-size: .86rem;
+    font-weight: 500;
+}}
+[data-testid="stSidebar"] [data-testid="stSidebarNavLink"] span {{
+    color: inherit !important;
+}}
+[data-testid="stSidebar"] [data-testid="stSidebarNavLink"]:hover {{
+    background: #334155;
+    color: #FFFFFF !important;
+}}
+[data-testid="stSidebar"] [data-testid="stSidebarNavLink"][aria-selected="true"],
+[data-testid="stSidebar"] [data-testid="stSidebarNavLink"][aria-current="page"] {{
+    background: #0C4A6E;
+    border-left: 3px solid #38BDF8;
+    border-radius: 4px 8px 8px 4px;
+    color: #FFFFFF !important;
+    font-weight: 700;
+}}
+[data-testid="stSidebar"] button {{
+    color: #CBD5E1 !important;
+}}
+[data-testid="stSidebar"] .stMarkdown,
+[data-testid="stSidebar"] label {{
+    color: #DBEAFE !important;
+}}
+[data-testid="stSidebar"] .stMarkdown h1,
+[data-testid="stSidebar"] .stMarkdown h2,
+[data-testid="stSidebar"] .stMarkdown h3 {{
+    color: #BFDBFE !important;
 }}
 [data-testid="stSidebar"] .stMarkdown h1,
 [data-testid="stSidebar"] .stMarkdown h2,

@@ -1,0 +1,9 @@
+[theme]
+# Se aplica antes de que Python inyecte el CSS personalizado.
+# Así el sidebar nativo no aparece brevemente con el tema claro por defecto.
+base = "light"
+primaryColor = "#38BDF8"
+backgroundColor = "#F8FAFC"
+secondaryBackgroundColor = "#1E293B"
+textColor = "#0F172A"
+font = "sans serif"
