@@ -1,7 +1,7 @@
 """
 pages/4_Simulador_Telegram.py
 ------------------------------
-Fase 1, 2 y 3 — Simulador Telegram con extracción e integración de persistencia en PostgreSQL.
+Fase 1, 2 y 3 — Simulador whatsapp  con extracción e integración de persistencia en PostgreSQL.
 
 - Interfaz conversacional en memoria (session_state).
 - Extracción automática de motocicleta, pago inicial, método de pago e intenciones.
@@ -18,7 +18,7 @@ from services.persistence_service import guardar_conversacion_simulada
 from styles.theme import COLORS, badge_ia, get_global_css, info_field_html
 
 st.set_page_config(
-    page_title="Simulador Telegram — Motos AI Leads",
+    page_title="Simulador Whatsapp  — Motos AI Leads",
     page_icon="💬",
     layout="wide",
 )
@@ -58,7 +58,7 @@ st.markdown(
     f"<div style='background:{COLORS['bg_card']};border:1px solid {COLORS['border']};"
     f"border-radius:8px;padding:10px 18px;display:flex;gap:24px;margin-bottom:1.25rem;'>"
     f"<span style='font-size:0.8rem;color:{COLORS['text_muted']};'>"
-    f"Canal: <b style='color:{COLORS['text_main']};'>Telegram</b></span>"
+    f"Canal: <b style='color:{COLORS['text_main']};'>Whatsapp</b></span>"
     f"<span style='font-size:0.8rem;color:{COLORS['text_muted']};'>"
     f"Empresa: <b style='color:{COLORS['text_main']};'>Motos Andinas</b></span>"
     f"<span style='font-size:0.8rem;color:{COLORS['text_muted']};'>"
@@ -166,7 +166,7 @@ with col_chat:
                         res_persistencia = guardar_conversacion_simulada(
                             messages=mensajes,
                             catalogo=catalogo,
-                            nombre_cliente="Cliente Telegram Simulado",
+                            nombre_cliente="Cliente Whatsapp Simulado",
                             empresa_id="EMP-01",
                             punto_venta_id="PV-002",
                         )

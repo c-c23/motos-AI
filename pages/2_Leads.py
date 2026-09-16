@@ -41,14 +41,39 @@ except Exception as exc:
 # ── Sidebar de filtros ────────────────────────────────────────────────────────
 empresas = {f"{item['empresa_id']} — {item['nombre']}": item['empresa_id'] for item in opciones['empresas']}
 
-with st.sidebar:
+st.markdown(
+    """
+    <style>
+    [class*="st-key-filtros-principales"] [data-baseweb="select"],
+    [class*="st-key-filtros-principales"] [data-baseweb="select"] > div {
+        background: #FFFFFF !important;
+        background-color: #FFFFFF !important;
+        border-color: #CBD5E1 !important;
+        color: #1A1D23 !important;
+    }
+    [class*="st-key-filtros-principales"] [data-baseweb="select"] [data-testid="stMarkdownContainer"] p,
+    [class*="st-key-filtros-principales"] [data-baseweb="select"] input {
+        color: #1A1D23 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+with st.container(key="filtros-principales"):
     st.markdown(
         f"<div style='font-size:0.72rem;font-weight:600;text-transform:uppercase;"
         f"letter-spacing:0.05em;color:{COLORS['text_muted']};margin-bottom:0.5rem;'>"
-        f"Filtros</div>",
+        f"Filtros principales</div>",
         unsafe_allow_html=True,
     )
-    empresa_label = st.selectbox("Empresa", ["Todas"] + list(empresas))
+    empresa_col, asesor_col, estado_col = st.columns(3)
+    empresas_filtro = ["Todas"] + list(empresas)
+    empresa_inicial = "EMP-01 — Motos Andinas"
+    empresa_index = empresas_filtro.index(empresa_inicial) if empresa_inicial in empresas_filtro else 0
+
+    with empresa_col:
+        empresa_label = st.selectbox("Empresa", empresas_filtro, index=empresa_index)
     empresa_id = empresas.get(empresa_label)
 
     puntos = [item for item in opciones['puntos_venta'] if not empresa_id or item['empresa_id'] == empresa_id]
@@ -56,6 +81,23 @@ with st.sidebar:
     asesores = [item for item in opciones['asesores'] if not empresa_id or item['empresa_id'] == empresa_id]
     asesores_map = {f"{item['asesor_id']} — {item['nombre']}": item['asesor_id'] for item in asesores}
 
+    with asesor_col:
+        asesor_label = st.selectbox("Asesor", ["Todos"] + list(asesores_map))
+
+    estados_filtro = ["Todos"] + opciones['estados_normalizados']
+    estado_inicial = "Sin gestión"
+    estado_index = estados_filtro.index(estado_inicial) if estado_inicial in estados_filtro else 0
+
+    with estado_col:
+        estado = st.selectbox("Estado de gestión", estados_filtro, index=estado_index)
+
+with st.sidebar:
+    st.markdown(
+        f"<div style='font-size:0.72rem;font-weight:600;text-transform:uppercase;"
+        f"letter-spacing:0.05em;color:{COLORS['text_muted']};margin-bottom:0.5rem;'>"
+        f"Filtros</div>",
+        unsafe_allow_html=True,
+    )
     busqueda = st.text_input("🔍 Buscar nombre, teléfono o ID")
 
     st.markdown(
@@ -81,9 +123,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     punto_label = st.selectbox("Punto de venta", ["Todos"] + list(puntos_map))
-    asesor_label = st.selectbox("Asesor", ["Todos"] + list(asesores_map))
     canal = st.selectbox("Canal", ["Todos"] + opciones['canales'])
-    estado = st.selectbox("Estado de gestión", ["Todos"] + opciones['estados_normalizados'])
     modelo = st.selectbox("Modelo / SKU", ["Todos"] + opciones['skus'])
 
     st.markdown("<div style='margin-top:0.75rem;'></div>", unsafe_allow_html=True)
