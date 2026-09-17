@@ -1,7 +1,7 @@
 """
 ai/schemas.py
 -------------
-Esquemas Pydantic para la extracción y análisis semántico de conversaciones comerciales.
+Esquemas Pydantic para la extracción y análisis semántico de conversaciones.
 """
 
 from typing import Literal, Optional, List

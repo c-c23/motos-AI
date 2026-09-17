@@ -2,7 +2,6 @@
 """
 scripts/run_pipeline.py
 -----------------------
-FASE 9F — Orquestador End-to-End del Pipeline de Motos AI Leads.
 
 Arquitectura de ejecución secuencial:
 1. Ingesta y normalización de nuevos datos (leads, conversaciones, mensajes).

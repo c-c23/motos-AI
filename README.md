@@ -1,6 +1,6 @@
 # motos-AI
 
-> Sistema inteligente de ingesta multicanal, extracción semántica con LLM (Gemini) y fallback determinista, scoring híbrido continuo (V1 + V2), motor conversacional interactivo y asignación balanceada multiempresa de leads comerciales para el sector de motocicletas.
+> Sistema inteligente de ingesta multicanal, extracción semántica con LLM (Gemini) y fallback determinista, scoring comercial V1 basado en datos históricos y scoring híbrido V2, motor conversacional interactivo y asignación balanceada multiempresa de leads comerciales.
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
@@ -19,9 +19,9 @@ En la comercialización de motocicletas a través de canales digitales y redes d
 
 Este modelo tradicional basado en orden de llegada (*First-In, First-Out* / FIFO) ocasiona pérdidas comerciales sustanciales:
 
-1. **Degradación acelerada de la urgencia (*Lead Decay*):** Prospectos con alta intención de compra, disponibilidad inmediata de cuota inicial o solicitud expresa de visita presencial pierden interés al no ser contactados oportunamente.
-2. **Capacidad comercial desaprovechada:** Los asesores dedican tiempo valioso a llamadas con prospectos meramente exploratorios o sin presupuesto, saturando su jornada diaria.
-3. **Falta de visibilidad y balanceo de carga:** Asignación manual o desbalanceada sin control de capacidad diaria ni garantías de aislamiento corporativo entre empresas y puntos de venta.
+1. Prospectos con alta intención de compra, disponibilidad inmediata de cuota inicial o solicitud expresa de visita presencial pierden interés al no ser contactados oportunamente.
+2. Los asesores dedican tiempo valioso a llamadas con prospectos meramente exploratorios o sin presupuesto, saturando su jornada diaria.
+3. Asignación manual sin control de capacidad diaria.
 
 ---
 
@@ -30,7 +30,7 @@ Este modelo tradicional basado en orden de llegada (*First-In, First-Out* / FIFO
 **motos-AI** transforma la gestión comercial mediante un pipeline desacoplado, explicable y robusto que implementa el siguiente ciclo de vida:
 
 ```text
-Canales Digitales (WhatsApp / Telegram / Web)
+Canales Digitales (WhatsApp / Web)
        │
        ▼
 Captura & Ingesta de Leads
@@ -59,7 +59,7 @@ Motor de Asignación Automática Balanceada
   └── Optimización por Menor Carga Relativa (carga / capacidad)
        │
        ▼
-Exposición Operativa en Streamlit CRM (Dashboard, Bandeja, Detalle 360° y Simulador)
+Exposición Operativa en Streamlit CRM (Dashboard, Bandeja, Detalle de Lead y Simulador)
 ```
 
 ---
@@ -73,7 +73,7 @@ flowchart TD
     subgraph UI["1. Capa de Exposición & CRM (Streamlit)"]
         DASH["Dashboard Operativo (pages/1_Dashboard.py)"]
         QUEUE["Bandeja de Leads (pages/2_Leads.py)"]
-        DET["Ficha Detalle 360° (pages/3_Detalle_Lead.py)"]
+        DET["Ficha Detalle (pages/3_Detalle_Lead.py)"]
         SIM["Simulador Conversacional (pages/4_Simulador_Telegram.py)"]
     end
 
@@ -82,24 +82,24 @@ flowchart TD
         PERSIST["Persistence Service (services/persistence_service.py)"]
         CONV_ENG["Conversation Engine FSM (services/conversation_engine.py)"]
         ASG_SRV["Assignment Service (services/assignment_service.py)"]
-        BATCH_V2["Batch Processor (scripts/process_scoring_v2.py)"]
+        BATCH_V2["Batch Processor V2 (scripts/process_scoring_v2.py)"]
     end
 
     subgraph INTELLIGENCE["3. Extracción IA & Scoring"]
         subgraph EXTRACTION["Extracción Conversacional"]
             GEMINI["Gemini Extractor (ai/gemini_extractor.py / gemini-3.8-flash)"]
-            RULES_EXT["Rules Extractor Fallback (services/extraction_service.py)"]
+            RULES_EXT["Rules Extractor (services/extraction_service.py)"]
         end
         subgraph SCORING["Motor de Scoring"]
-            SCORE_V1["Scoring V1: Regresión Logística (services/scoring_service.py)"]
+            SCORE_V1["Scoring V1: Regresión Logística + Decaimiento temporal (services/scoring_service.py)"]
             SCORE_V2["Scoring V2: Híbrido V1 (70%) + Semántico (30%)"]
         end
     end
 
     subgraph STORAGE["4. Capa de Persistencia Relacional (PostgreSQL / Supabase)"]
-        DB[(PostgreSQL 15+ / Supabase)]
+        DB[(PostgreSQL / Supabase)]
         VW["Vista Optimizada core.vw_leads_gestion"]
-        AUDIT["Histórico Inmutable: core.puntajes_leads (es_actual)"]
+        AUDIT["Historico de Scoring: core.puntajes_leads (es_actual)"]
         DB --- VW
         DB --- AUDIT
     end
@@ -114,23 +114,24 @@ flowchart TD
 
 ## 4. Flujo de Procesamiento End-to-End de un Lead
 
-El cálculo de Scoring V2 opera en dos modalidades complementarias:
+El procesamiento de un lead se ejecuta principalmente mediante el flujo interactivo del simulador conversacional. Al finalizar una conversación y seleccionar **"Guardar conversación en PostgreSQL"** desde `pages/4_Simulador_Telegram.py`, se ejecutan de forma secuencial las etapas de persistencia, scoring, extracción semántica y versionado.
 
-### A. Flujo Interactivo (Simulador Conversacional en Vivo)
-Al interactuar y hacer clic en *"Guardar conversación en PostgreSQL"* desde [pages/4_Simulador_Telegram.py](pages/4_Simulador_Telegram.py):
-1. **[services/persistence_service.py](services/persistence_service.py)** coordina la persistencia atómica del lead, conversación, mensajes y entidades estructuradas.
-2. Calcula de forma desacoplada **Scoring V1** (`v1.0`, `logistic_regression`).
-3. Invoca **Scoring V2** (`v2.0`, `hybrid_gemini`), que extrae el análisis semántico con Gemini (o activa fallback determinista ante errores).
-4. Persiste atómicamente la promoción: **V1 pasa a `es_actual = FALSE`** y **V2 queda registrado con `es_actual = TRUE`**.
-5. Retorna el resultado consolidado al simulador y habilita la visualización inmediata en la Bandeja y el Dashboard.
+### Flujo Interactivo — Simulador Conversacional
 
-### B. Flujo Batch (Procesamiento Masivo de Leads Pendientes)
-Para leads existentes o cargas masivas históricas que no cuentan con registro en versión `v2.0`:
-* [scripts/process_scoring_v2.py](scripts/process_scoring_v2.py) procesa lead por lead de forma transaccional, con soporte para simulación (`--dry-run`), límite (`--limit N`) y control de ritmo (`--delay S`).
+1. **Persistencia:** `services/persistence_service.py` coordina la persistencia del lead, conversación, mensajes y entidades estructuradas.
+
+2. **Scoring V1:** se calcula y persiste el modelo estadístico V1 (`v1.0`, `logistic_regression`).
+
+3. **Scoring V2:** se ejecuta el scoring híbrido (`v2.0`, `hybrid_gemini`). La extracción semántica se realiza mediante Gemini cuando está disponible; ante errores de la API o límites de cuota, se utiliza el extractor determinista como fallback.
+
+4. **Versionado:** una vez calculado V2, el registro V1 anterior pasa a `es_actual = FALSE` y el nuevo registro V2 queda como `es_actual = TRUE`.
+
+5. **Respuesta a la interfaz:** el servicio retorna el resultado consolidado, incluyendo el score V2 activo y su temperatura, permitiendo su visualización posterior en la Bandeja de Leads y el Dashboard.
 
 ```mermaid
 sequenceDiagram
     autonumber
+
     actor Cliente as Prospecto / Simulador
     participant UI as Streamlit (Simulador)
     participant Persist as Persistence Service
@@ -140,37 +141,41 @@ sequenceDiagram
 
     Cliente->>UI: Mensajes conversacionales
     UI->>Persist: guardar_conversacion_simulada()
-    Persist->>DB: Transacción Ingesta: INSERT leads, conversaciones, mensajes, extracciones_ia
-    DB-->>Persist: Commit exitoso (lead_id, conv_id)
-    
+
+    Persist->>DB: Persistencia de lead, conversación y mensajes
+    DB-->>Persist: Persistencia confirmada
+
     rect rgb(240, 245, 255)
-        Note over Persist,Sco: 1. Scoring V1 (Base Estadística)
+        Note over Persist,Sco: 1. Scoring V1
         Persist->>Sco: evaluar_y_guardar_scoring_lead(lead_id)
-        Sco->>DB: INSERT core.puntajes_leads (v1.0, logistic_regression, es_actual=TRUE)
+        Sco->>DB: INSERT puntajes_leads (v1.0)
     end
 
     rect rgb(245, 255, 245)
-        Note over Persist,Ext: 2. Extracción Semántica (Conexión DB en IDLE / Sin Bloqueos)
+        Note over Persist,Ext: 2. Extracción Semántica
         Persist->>Sco: evaluar_y_guardar_scoring_v2_lead(lead_id)
         Sco->>Ext: analizar_conversacion(mensajes, catalogo)
-        alt Gemini Disponible (API OK)
-            Ext->>Ext: Invoca Gemini API -> Validación Pydantic (AnalisisSemantico)
-        else Error API / HTTP 429 / Cuota Excedida
-            Ext->>Ext: Fallback inmediato a Reglas Deterministas
+
+        alt Gemini disponible
+            Ext->>Ext: Gemini API + Validación Pydantic
+        else Error API / cuota
+            Ext->>Ext: Fallback a reglas deterministas
         end
-        Ext-->>Sco: ResultadoExtraccion (modelo_extraccion: gemini | reglas)
+
+        Ext-->>Sco: ResultadoExtraccion
     end
 
     rect rgb(255, 250, 240)
-        Note over Sco,DB: 3. Ponderación & Versionado V2
-        Sco->>Sco: Calcula V2 = 0.70*V1 + 0.30*Semántico
-        Sco->>DB: Transacción V2: UPDATE V1 (es_actual=FALSE) + INSERT V2 (es_actual=TRUE)
+        Note over Sco,DB: 3. Ponderación y Versionado V2
+        Sco->>Sco: V2 = 0.70 × V1 + 0.30 × Semántico
+        Sco->>DB: UPDATE V1 + INSERT V2
     end
 
-    Persist-->>UI: Retorna payload con Score V2 activo y Temperatura
+    Persist-->>UI: Score V2 activo + Temperatura
 ```
 
-> **Decisión de Arquitectura Crítica:** Las llamadas externas a la API de Gemini se ejecutan **completamente fuera de transacciones de base de datos** (verificando que la conexión esté en estado `IDLE`). Esto previene bloqueos de tablas, retenciones de conexiones en el pooler y errores de timeout ante latencia de red o límites de cuota externa.
+> **Decisión de Arquitectura:** Las llamadas externas a Gemini se ejecutan fuera de la transacción de base de datos que persiste el resultado V2. Esto evita mantener una transacción abierta durante la llamada de red y desacopla la latencia o los errores de la API externa del proceso de persistencia.
+
 
 ---
 
@@ -178,14 +183,14 @@ sequenceDiagram
 
 * **Bandeja de Gestión de Leads:** Visualización priorizada con filtros por empresa, punto de venta, canal, temperatura comercial, estado operativo y asesor asignado.
 * **Extracción Semántica con LLM (Gemini):** Análisis cualitativo de diálogos comerciales con extracción estructurada de intención, urgencia, etapa del embudo, señales de compra y objeciones principales.
-* **Mecanismo de Fallback Determinista:** Transición automática e inmediata a extractor heurístico basado en reglas ante errores de API, cuota agotada (HTTP 429) o fallos de red.
-* **Scoring Híbrido Continuo (V1 + V2):** Ponderación estadística del modelo predictivo V1 (70%) con el componente semántico V2 (30%) y desglose auditable en JSONB.
-* **Trazabilidad y Versionado Inmutable:** Conservación de calificaciones previas como histórico (`es_actual = false`) y promoción de Scoring V2 como calificación activa (`es_actual = true`).
-* **Asignación Automática Balanceada:** Algoritmo de asignación con aislamiento corporativo multiempresa y optimización por menor carga relativa.
-* **Tablero de Control Operacional:** Métricas clave actualizadas directamente desde PostgreSQL (KPIs de volumen, tiempos, distribución de temperaturas y avance de gestión).
+* **Mecanismo de Fallback Determinista:** Transición automática a extractor heurístico basado en reglas ante errores de API, cuota agotada (HTTP 429) o fallos de red.
+* **Scoring Híbrido (V2):** Combinación del componente estadístico V1 (70%) con el componente semántico (30%), con desglose auditable de los factores utilizados.
+* **Trazabilidad y Versionado de Scoring:** Conservación de calificaciones previas como histórico (`es_actual = false`) y promoción de Scoring V2 como calificación activa (`es_actual = true`).
+* **Asignación Automática Balanceada:** Algoritmo de asignación con aislamiento corporativo multiempresa y optimización por menor carga relativa. Con esto respetamos capacidad por dia y punto de venta.
+* **Tablero de Control Operacional:** Visualización de métricas operativas obtenidas directamente desde PostgreSQL, incluyendo volumen de leads, tiempos de gestión, distribución de temperaturas y avance de gestión.
 * **Ficha CRM Detallada:** Vista integral del cliente con especificaciones del modelo cotizado, historial de mensajes y bitácora de eventos.
-* **Simulador Conversacional Guiado:** Interfaz interactiva de chat con máquina de estados finitos (FSM), extracción reactiva y persistencia en vivo con Scoring V2.
-* **Orquestador de Pipeline y Procesador Batch:** Ejecución unificada por consola con soporte para modo simulación (`--dry-run`), control de ritmo (`--delay`) y reportes en Markdown.
+* **Simulador Conversacional Guiado:** Interfaz interactiva de chat basada en una máquina de estados finitos (FSM), con extracción reactiva, gestión contextual y persistencia en PostgreSQL con Scoring V2.
+* **Orquestador de Pipeline y Procesador Batch:** Ejecución automatizada del pipeline end-to-end mediante (`scripts/run_pipeline.py`) y procesamiento especializado de Scoring V2 mediante (`scripts/process_scoring_v2.py`)
 
 ---
 
@@ -195,18 +200,18 @@ El motor **Scoring V1** genera una calificación de prioridad base continua entr
 
 ### Arquitectura de Decisión V1
 ```text
-               ¿Existen variables conversacionales?
-               (solicita_cita, pago_inicial o metodo_pago)
+               ¿Existen variables conversacionales
+                suficientes para V1?
                                │
                       ┌────────┴────────┐
                      SÍ                 NO
                       │                 │
                       ▼                 ▼
-           Regresión Logística V1    Rules V1 Fallback
+                 Regresión  V1     Rules V1 Fallback
 ```
 
 #### 1. Modelo Principal: Regresión Logística (`logistic_regression` / `v1.0`)
-* **Entrenamiento:** Calibrado sobre 2.200 registros históricos independientes (`core.historico_cierres`, casos `HX-00001` a `HX-02200`).
+* **Entrenamiento:** Calibrado sobre 2.200 registros históricos de (`core.historico_cierres`).
 * **Desempeño:** ROC-AUC de 0.611–0.629, PR-AUC de 0.138–0.152, con un **Lift@10% de 1.56x** (la tasa estimada en el 10% superior sube de 9.75% a 15.3%–16.4%). *Métricas obtenidas sobre el esquema de validación utilizado durante el entrenamiento de V1; no deben interpretarse como desempeño garantizado en producción.*
 * **Variables y Coeficientes Reales en Código:**
   * $\text{log\_horas} = \ln(1 + \text{horas\_espera})$: Coeficiente **`-0.2550`** (modela el decaimiento continuo sin rupturas discretas).
@@ -228,18 +233,18 @@ $$\text{Puntaje} = \min\Big(100, \max\big(0, (\text{Puntaje Tiempo} \times 0.70)
 ### Temperaturas Comerciales
 El puntaje resultante se segmenta en 4 temperaturas operativas:
 
-| Rango de Puntaje | Temperatura | Significado Operativo |
-| :--- | :--- | :--- |
-| **75.0 – 100.0** | **Crítico** | Contacto inmediato (<1h) con cita o cuota inicial. Máxima prioridad de llamada. |
-| **50.0 – 74.99** | **Alto** | Prospecto cualificado con intención firme o ventana de espera corta. |
-| **25.0 – 49.99** | **Medio** | Prospecto en etapa de evaluación o con degradación temporal moderada. |
-| **0.0 – 24.99** | **Bajo** | Espera prolongada (>48h), sin intención de financiamiento ni agendamiento. |
+| Rango de Puntaje | Temperatura |
+| :--- | :--- |
+| **75.0 – 100.0** | **Crítico** | 
+| **50.0 – 74.99** | **Alto** | 
+| **25.0 – 49.99** | **Medio** |
+| **0.0 – 24.99** | **Bajo** | 
 
 ---
 
 ## 7. Scoring V2: Fusión Híbrida Semántica
 
-> **Regla de Diseño:** Scoring V2 no reemplaza ni destruye Scoring V1. V1 permanece como componente estadístico base y registro histórico, mientras V2 combina V1 con señales semánticas cualitativas y se convierte en la calificación activa del lead.
+> **Regla de Diseño:** Scoring V2 no reemplaza ni elimina Scoring V1. V1 permanece como componente estadístico base y versión histórica, mientras V2 combina el resultado de V1 con señales semánticas cualitativas y se convierte en la versión activa del scoring del lead.
 
 ### Fórmula de Ponderación Híbrida
 Implementada en [services/scoring_service.py](services/scoring_service.py):
@@ -251,16 +256,39 @@ $$\text{puntaje\_base} = (0.50 \times \text{Puntos Intención}) + (0.30 \times \
 $$\text{incrementos} = (+5.0 \text{ si solicita\_asesor}) + (+5.0 \text{ si solicita\_cotizacion}) + (+5.0 \text{ si solicita\_cita})$$
 $$\text{puntaje\_semantico} = \min(100.0, \max(0.0, \text{puntaje\_base} + \text{incrementos}))$$
 
-#### Tablas de Puntuación Semántica:
+#### Tablas de Puntuación Semántica
 
-| Nivel / Fase | Intención de Compra (50%) | Urgencia Temporal (30%) | Fase del Embudo (20%) |
-| :--- | :---: | :---: | :---: |
-| **Alta / Compra / Visita** | 100.0 pts (`alta`) | 100.0 pts (`alta` - hoy mismo) | 100.0 pts (`compra`) / 90.0 pts (`visita`) |
-| **Cotización / Evaluación** | — | — | 75.0 pts (`cotizacion`) / 60.0 pts (`evaluacion`) |
-| **Media / Interés** | 60.0 pts (`media`) | 60.0 pts (`media` - corto plazo) | 40.0 pts (`interes`) |
-| **Baja / Exploración** | 20.0 pts (`baja`) | 20.0 pts (`baja` - sin prisa) | 20.0 pts (`exploracion`) |
-| **Indeterminada** | 50.0 pts | 50.0 pts | 50.0 pts |
+**Intención de Compra (50%)** (Qué tan clara es la intención del cliente de comprar)
 
+| Nivel | Valor |
+| :--- | ---: |
+| **Alta** (`alta`) | 100.0 pts |
+| **Media** (`media`) | 60.0 pts |
+| **Baja** (`baja`) | 20.0 pts |
+| **Indeterminada** (`indeterminada`) | 50.0 pts |
+
+**Urgencia Temporal (30%)** (Qué tan pronto parece querer avanzar)
+
+| Nivel | Valor |
+| :--- | ---: |
+| **Alta** (`alta`) | 100.0 pts |
+| **Media** (`media`) | 60.0 pts |
+| **Baja** (`baja`) | 20.0 pts |
+| **Indeterminada** (`indeterminada`) | 50.0 pts |
+
+**Fase del Embudo (20%)** (En qué etapa comercial está)
+
+| Fase | Valor |
+| :--- | ---: |
+| **Compra** (`compra`) | 100.0 pts |
+| **Visita** (`visita`) | 90.0 pts |
+| **Cotización** (`cotizacion`) | 75.0 pts |
+| **Evaluación** (`evaluacion`) | 60.0 pts |
+| **Interés** (`interes`) | 40.0 pts |
+| **Exploración** (`exploracion`) | 20.0 pts |
+| **Indeterminada** (`indeterminada`) | 50.0 pts |
+
+Cuando la extracción semántica presenta una confianza inferior a 0.60, las variables semánticas son neutralizadas a un valor de 50.0 puntos, evitando que una extracción de baja confianza produzca una modificación significativa del scoring híbrido.
 ---
 
 ## 8. Integración con Google Gemini
@@ -297,7 +325,7 @@ flowchart TD
     B -- "SÍ (Respuesta LLM válida)" --> C["Validación Pydantic (AnalisisSemantico)"]
     C --> D{"¿Confianza >= 0.60?"}
     D -- "SÍ" --> E["Señales Semánticas Plenas <br/> (modelo_extraccion = 'gemini')"]
-    D -- "NO (< 0.60)" --> F["Neutralización preventiva: puntaje_semantico = 50.0 pts <br/> (modelo_extraccion = 'gemini')"]
+    D -- "NO (< 0.60)" --> F["Neutralización de variables semánticas (intención, urgencia y fase = 50.0) <br/> (modelo_extraccion = 'gemini')"]
     B -- "NO (HTTP 429 / Cuota / Red / Error)" --> G["Fallback Inmediato a Reglas Heurísticas <br/> (attempts=1)"]
     G --> H["Mapeo determinista <br/> (modelo_extraccion = 'reglas')"]
     E --> I["Cálculo Scoring V2 (0.70*V1 + 0.30*Semántico)"]
@@ -316,7 +344,7 @@ flowchart TD
 
 ---
 
-## 10. Versionado Inmutable: V1 Histórico y V2 Activo
+## 10. Versionado y Trazabilidad del Scoring
 
 Para garantizar trazabilidad comercial y auditoría de decisiones, el sistema implementa versionado inmutable en `core.puntajes_leads`:
 
@@ -341,9 +369,9 @@ BEGIN;
 COMMIT;
 ```
 
-* **V1 Histórico:** `modelo_scoring = 'logistic_regression'`, `version_scoring = 'v1.0'`, `es_actual = FALSE`.
+* **V1 — Versión histórica:** `modelo_scoring = 'logistic_regression'`, `version_scoring = 'v1.0'`, `es_actual = FALSE`.
 * **V2 Activo:** `modelo_scoring = 'hybrid_gemini'`, `version_scoring = 'v2.0'`, `es_actual = TRUE`.
-* **Consumo Transparente:** La vista `core.vw_leads_gestion`, el Dashboard y la Bandeja consumen siempre el registro donde `es_actual = TRUE`.
+* **Consumo Transparente:** La vista `core.vw_leads_gestion`, el Dashboard y la Bandeja consumen el registro donde `es_actual = TRUE`.
 
 ### Formato de Explicabilidad JSONB en V2:
 ```json
@@ -373,7 +401,7 @@ COMMIT;
 
 ## 11. Simulador Conversacional Guiado
 
-La aplicación incluye un simulador de diálogo en vivo ([pages/4_Simulador_Telegram.py](pages/4_Simulador_Telegram.py)) respaldado por una máquina de estados finitos (FSM) de 6 capas en [services/conversation_engine.py](services/conversation_engine.py).
+La aplicación incluye un simulador de diálogo ([pages/4_Simulador_Telegram.py](pages/4_Simulador_Telegram.py)) respaldado por una máquina de estados finitos (FSM) de 6 capas en [services/conversation_engine.py](services/conversation_engine.py).
 
 ### Capacidades del Simulador:
 * **Slot-Filling Proactivo:** Guiado contextual paso a paso para capturar:
@@ -390,7 +418,7 @@ La aplicación incluye un simulador de diálogo en vivo ([pages/4_Simulador_Tele
 
 ## 12. Motor de Asignación Automática de Asesores
 
-El motor de asignación comercial ([services/assignment_service.py](services/assignment_service.py)) opera bajo reglas estrictas de determinismo y aislamiento:
+El motor de asignación comercial ([services/assignment_service.py](services/assignment_service.py)) opera bajo reglas de determinismo y aislamiento:
 
 ```mermaid
 flowchart TD
@@ -450,7 +478,7 @@ erDiagram
 ```
 
 ### Tablas Principales:
-* **`core.empresas`:** Empresas comerciales del consorcio (`EMP-01`, etc.).
+* **`core.empresas`:** Empresas comerciales (`EMP-01`, etc.).
 * **`core.puntos_venta`:** Concesionarios y salas de venta vinculadas.
 * **`core.asesores`:** Asesores comerciales, sede, estado activo y capacidad diaria máxima.
 * **`core.motocicletas`:** Catálogo oficial (SKU, marca, línea, cilindraje, precio lista).
@@ -526,7 +554,7 @@ El comportamiento de versionado inmutable y fallback se encuentra validado en Po
 
 ## 17. Limitaciones Conocidas
 
-1. **Disponibilidad y Cuotas de LLM:** La extracción semántica con Gemini depende de la disponibilidad y los límites de cuota por minuto (*RPM*) del proveedor (especialmente en planes Free Tier). El sistema incluye un fallback automático a reglas que mantiene 100% operativo el pipeline de scoring y persistencia aun cuando la API externa no responda.
+1. **Disponibilidad y Cuotas de LLM:** La extracción semántica con Gemini depende de la disponibilidad y los límites de cuota por minuto (*RPM*) del proveedor (en planes Free Tier). El sistema incluye un fallback automático a reglas que mantiene 100% operativo el pipeline de scoring y persistencia aun cuando la API externa no responda.
 2. **Neutralización por Baja Confianza:** Cuando el análisis semántico arroja una confianza menor a `0.60`, las variables semánticas se neutralizan a `50.0 pts` para priorizar la estabilidad estadística de V1 sobre inferencias inciertas.
 3. **Webhooks en Producción:** La interacción conversacional opera actualmente mediante la interfaz del Simulador en Streamlit y procesos de carga por lotes; no cuenta aún con webhooks directos desplegados hacia las APIs Cloud oficiales de Meta o Telegram.
 
@@ -546,12 +574,6 @@ DB_PASSWORD=TU_PASSWORD
 
 # API Key de Google Gemini (google-genai)
 GEMINI_API_KEY=TU_API_KEY_DE_GEMINI
-
-# Opcional: Delay en segundos entre llamadas masivas a Gemini (CLI / Batch)
-SCORING_V2_DELAY=0.0
-```
-
-> **Seguridad:** El archivo `.env` se encuentra ignorado en `.gitignore` y **nunca** debe incluirse en el repositorio. En Streamlit Cloud las credenciales se configuran mediante *Streamlit Secrets*.
 
 ---
 
