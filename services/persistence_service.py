@@ -4,6 +4,7 @@ services/persistence_service.py
 Servicio para coordinar la persistencia de conversaciones simuladas, extracciones y scoring V1 en PostgreSQL.
 """
 
+import logging
 from datetime import datetime
 from database import get_connection
 from queries.persistence_queries import (
@@ -12,7 +13,12 @@ from queries.persistence_queries import (
     guardar_lead_completo_trx,
 )
 from services.extraction_service import extract_conversation
-from services.scoring_service import evaluar_y_guardar_scoring_lead
+from services.scoring_service import (
+    evaluar_y_guardar_scoring_lead,
+    evaluar_y_guardar_scoring_v2_lead,
+)
+
+logger = logging.getLogger("services.persistence_service")
 
 
 def guardar_conversacion_simulada(
@@ -120,11 +126,27 @@ def guardar_conversacion_simulada(
 
     res["extraccion"] = extraccion
 
-    # 5. Ejecutar scoring V1 de forma desacoplada
+    # 5. Ejecutar scoring V1 base de forma desacoplada (garantiza histórico V1)
     try:
-        res_scoring = evaluar_y_guardar_scoring_lead(conn=None, lead_id=lead_id)
-        res["scoring"] = res_scoring
+        res_scoring_v1 = evaluar_y_guardar_scoring_lead(conn=None, lead_id=lead_id)
+        res["scoring_v1"] = res_scoring_v1
+        res["scoring"] = res_scoring_v1  # Base por defecto si V2 no pudiera ejecutarse
     except Exception as e:
-        res["scoring_error"] = str(e)
+        logger.warning("Error calculando scoring V1 para %s: %s", lead_id, e)
+        res["scoring_v1_error"] = str(e)
+
+    # 6. Ejecutar scoring V2 híbrido (Gemini / fallback reglas) desacoplado
+    try:
+        res_scoring_v2 = evaluar_y_guardar_scoring_v2_lead(
+            conn=None,
+            lead_id=lead_id,
+            mensajes=messages,
+            catalogo=catalogo,
+        )
+        res["scoring_v2"] = res_scoring_v2
+        res["scoring"] = res_scoring_v2  # Score activo V2 para la UI y dashboard
+    except Exception as e:
+        logger.error("Error calculando scoring V2 para %s: %s", lead_id, e)
+        res["scoring_v2_error"] = str(e)
 
     return res

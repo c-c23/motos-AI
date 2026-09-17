@@ -608,7 +608,7 @@ with col_chat:
                     <span>·</span>
                     <span>Conversación: <strong>{html.escape(conv_id_guardado)}</strong></span>
                     <span>·</span>
-                    <span>Score: <strong>{score_str}</strong></span>
+                    <span>Score V2: <strong>{score_str}</strong></span>
                     <span>·</span>
                     {badge_temp_html}
                   </div>
