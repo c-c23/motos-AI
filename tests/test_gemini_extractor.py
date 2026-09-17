@@ -296,3 +296,25 @@ def test_caso_3_exploracion():
     assert resultado.analisis_semantico.fase_embudo == "exploracion"
     assert resultado.analisis_semantico.urgencia in ("baja", "indeterminada")
     assert resultado.sku_motocicleta == "SKU-001"
+
+
+def test_gemini_http_429_quota_fallback_inmediato():
+    """Test 9: Error HTTP 429 de cuota en Gemini activa fallback inmediato a reglas con detalle de error."""
+    mock_client = MagicMock()
+    mock_client.interactions.create.side_effect = Exception(
+        "Error code: 429 - {'error': {'message': 'Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20'}}"
+    )
+
+    mensajes = [{"role": "user", "content": "Hola, cuánto vale la Honda CB 125F Twister?"}]
+    resultado = analizar_conversacion(
+        mensajes=mensajes,
+        catalogo=CATALOGO_MOCK,
+        client=mock_client
+    )
+
+    assert resultado.modelo_extraccion == "reglas"
+    assert resultado.version_extraccion == "1.0"
+    assert "429" in resultado.error_detalle
+    assert resultado.sku_motocicleta == "SKU-001"
+    assert resultado.analisis_semantico.confianza == 0.5
+

@@ -18,9 +18,14 @@ from decimal import Decimal
 import joblib
 import numpy as np
 import psycopg
+from typing import Any
 
 from database import get_connection
-from queries.scoring_queries import get_lead_data_for_scoring, guardar_puntaje_lead_trx
+from queries.scoring_queries import (
+    get_lead_data_for_scoring,
+    guardar_puntaje_lead_trx,
+    guardar_puntaje_v2_lead_trx,
+)
 
 # Cargar artefacto de Regresión Logística V1 si existe
 MODEL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models", "logistic_regression_v1.joblib"))
@@ -471,6 +476,258 @@ def evaluar_y_guardar_scoring_lead(
 
         # 3. Guardar en PostgreSQL dentro de una transacción atómica
         guardado = guardar_puntaje_lead_trx(c, payload_puntaje)
+        return guardado
+
+    if conn is not None:
+        return _procesar(conn)
+    else:
+        with get_connection() as connection:
+            return _procesar(connection)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SCORING V2: Integración de Señales Semánticas (Gemini) + Scoring V1
+# ══════════════════════════════════════════════════════════════════════════════
+
+PUNTOS_INTENCION = {
+    "baja": 20.0,
+    "media": 60.0,
+    "alta": 100.0,
+    "indeterminada": 50.0,
+}
+
+PUNTOS_URGENCIA = {
+    "baja": 20.0,
+    "media": 60.0,
+    "alta": 100.0,
+    "indeterminada": 50.0,
+}
+
+PUNTOS_FASE_EMBUDO = {
+    "exploracion": 20.0,
+    "interes": 40.0,
+    "evaluacion": 60.0,
+    "cotizacion": 75.0,
+    "visita": 90.0,
+    "compra": 100.0,
+    "indeterminada": 50.0,
+}
+
+
+def calcular_puntaje_semantico(
+    analisis: Any,
+) -> tuple[float, list[str]]:
+    """
+    Calcula el puntaje semántico determinista (0-100) a partir del análisis de Gemini.
+    
+    Fórmula:
+      puntaje_base = 0.50 * intención + 0.30 * urgencia + 0.20 * fase_embudo
+      incrementos  = (+5 si solicita_asesor) + (+5 si solicita_cotizacion) + (+5 si solicita_cita)
+      total        = clamp(puntaje_base + incrementos, 0, 100)
+
+    Control de confianza:
+      Si confianza < 0.60, las variables se tratan como 'indeterminadas' y el puntaje es 50.0.
+    """
+    if analisis is None:
+        return 50.0, ["Sin análisis semántico: asignado valor neutro (50.0)"]
+
+    # Soporte para dict o AnalisisSemantico Pydantic
+    if hasattr(analisis, "model_dump"):
+        data = analisis.model_dump()
+    elif isinstance(analisis, dict):
+        data = analisis
+    else:
+        data = {}
+
+    confianza = float(data.get("confianza", 1.0))
+    razones = []
+
+    if confianza < 0.60:
+        razones.append(f"Confianza baja ({confianza:.2f} < 0.60): señales neutralizadas a 50.0 pts")
+        return 50.0, razones
+
+    intencion = str(data.get("intencion_compra", "indeterminada")).lower()
+    urgencia = str(data.get("urgencia", "indeterminada")).lower()
+    fase = str(data.get("fase_embudo", "indeterminada")).lower()
+
+    pts_intencion = PUNTOS_INTENCION.get(intencion, 50.0)
+    pts_urgencia = PUNTOS_URGENCIA.get(urgencia, 50.0)
+    pts_fase = PUNTOS_FASE_EMBUDO.get(fase, 50.0)
+
+    base = (0.50 * pts_intencion) + (0.30 * pts_urgencia) + (0.20 * pts_fase)
+
+    razones.append(f"Intención de compra: {intencion} ({pts_intencion} pts -> {0.50*pts_intencion:.1f} base)")
+    razones.append(f"Urgencia: {urgencia} ({pts_urgencia} pts -> {0.30*pts_urgencia:.1f} base)")
+    razones.append(f"Fase del embudo: {fase} ({pts_fase} pts -> {0.20*pts_fase:.1f} base)")
+
+    incrementos = 0.0
+    if data.get("solicita_asesor") is True:
+        incrementos += 5.0
+        razones.append("Solicita asesor comercial (+5 pts)")
+    if data.get("solicita_cotizacion") is True:
+        incrementos += 5.0
+        razones.append("Solicita cotización formal (+5 pts)")
+    if data.get("solicita_cita") is True:
+        incrementos += 5.0
+        razones.append("Solicita cita / visita (+5 pts)")
+
+    senales = data.get("senales_compra") or []
+    for s in senales:
+        razones.append(f"Señal detectada: {s}")
+
+    if data.get("objecion_principal"):
+        razones.append(f"Objeción identificada: {data.get('objecion_principal')}")
+
+    total_semantico = max(0.0, min(100.0, round(base + incrementos, 2)))
+    return total_semantico, razones
+
+
+def calcular_scoring_v2(
+    puntaje_v1: float | dict,
+    analisis_semantico: Any = None,
+    modelo_extraccion: str = "gemini",
+) -> dict:
+    """
+    Calcula Scoring V2 combinando 70% Scoring V1 y 30% Puntaje Semántico.
+    
+    puntaje_v2 = 0.70 * puntaje_v1 + 0.30 * puntaje_semantico
+    """
+    if isinstance(puntaje_v1, dict):
+        v1_val = float(puntaje_v1.get("puntaje_prioridad", 50.0))
+        razones_v1 = puntaje_v1.get("razones")
+    else:
+        v1_val = float(puntaje_v1)
+        razones_v1 = None
+
+    if analisis_semantico is not None:
+        puntaje_sem, razones_sem = calcular_puntaje_semantico(analisis_semantico)
+    else:
+        puntaje_sem = v1_val
+        razones_sem = ["Sin señales semánticas adicionales (usando base V1)"]
+
+    puntaje_v2 = max(0.0, min(100.0, round(0.70 * v1_val + 0.30 * puntaje_sem, 2)))
+    if puntaje_v2 == int(puntaje_v2):
+        puntaje_v2 = float(int(puntaje_v2))
+
+    temperatura_v2 = determinar_temperatura(puntaje_v2)
+
+    return {
+        "puntaje_v1": v1_val,
+        "puntaje_semantico": puntaje_sem,
+        "puntaje_v2": puntaje_v2,
+        "temperatura_v2": temperatura_v2,
+        "modelo_extraccion": modelo_extraccion,
+        "version_scoring": "v2.0",
+        "razones_semanticas": razones_sem,
+        "razones_v1": razones_v1,
+    }
+
+
+def evaluar_y_guardar_scoring_v2_lead(
+    conn: psycopg.Connection | None,
+    lead_id: str,
+    fecha_referencia: datetime | None = None,
+    mensajes: list[dict] | None = None,
+    catalogo: list[dict] | None = None,
+) -> dict:
+    """
+    Coordina el cálculo de Scoring V2 (V1 + Análisis Semántico Gemini / Fallback Reglas)
+    y la persistencia atómica e idempotente en PostgreSQL (`core.puntajes_leads`).
+
+    Mantiene el histórico V1 marcándolo como es_actual = FALSE y crea el registro V2 con es_actual = TRUE.
+    """
+    def _procesar(c: psycopg.Connection) -> dict:
+        lead_data = get_lead_data_for_scoring(c, lead_id)
+        if not lead_data:
+            raise ValueError(f"Lead {lead_id} no encontrado para scoring V2.")
+
+        registrado_en = lead_data["registrado_en"]
+        primer_contacto_en = lead_data["primer_contacto_en"]
+
+        # 1. Calcular horas de espera
+        horas, _ = calcular_horas_sin_contacto(
+            registrado_en=registrado_en,
+            primer_contacto_en=primer_contacto_en,
+            fecha_referencia=fecha_referencia,
+        )
+
+        # 2. Calcular Scoring V1 (híbrido LR / Rules)
+        res_v1 = evaluar_scoring_hibrido(lead_data, horas)
+
+        # 3. Obtener mensajes conversacionales
+        msgs = mensajes
+        if msgs is None:
+            try:
+                from queries.leads_queries import get_mensajes_lead
+                msgs = get_mensajes_lead(c, lead_id)
+            except Exception:
+                msgs = []
+
+        # Asegurar que la conexión quede en estado IDLE (no INTRANS) antes de llamar a la IA
+        try:
+            if hasattr(c, "info") and hasattr(c.info, "transaction_status"):
+                import psycopg.pq
+                if c.info.transaction_status == psycopg.pq.TransactionStatus.INTRANS:
+                    c.commit()
+        except Exception:
+            pass
+
+        # 4. Extraer análisis semántico con Gemini (o fallback a reglas) totalmente fuera de transacción DB
+        sem = None
+        modelo_extraccion = "reglas"
+        if msgs and len(msgs) > 0:
+            from ai.gemini_extractor import analizar_conversacion
+            res_ext = analizar_conversacion(mensajes=msgs, catalogo=catalogo)
+            sem = res_ext.analisis_semantico
+            modelo_extraccion = res_ext.modelo_extraccion
+        elif lead_data.get("solicita_cita") is not None or lead_data.get("pago_inicial") is not None:
+            # Fallback semántico desde datos estructurados si no hay mensajes brutos
+            from ai.gemini_extractor import _crear_analisis_fallback
+            sem = _crear_analisis_fallback({
+                "solicita_cita": lead_data.get("solicita_cita"),
+                "solicita_cotizacion": None,
+                "pago_inicial": lead_data.get("pago_inicial"),
+                "metodo_pago": lead_data.get("metodo_pago"),
+                "intencion_declarada": lead_data.get("intencion_declarada"),
+                "sku_motocicleta": None,
+            })
+            modelo_extraccion = "reglas"
+
+        # 5. Calcular Scoring V2
+        res_v2 = calcular_scoring_v2(
+            puntaje_v1=res_v1,
+            analisis_semantico=sem,
+            modelo_extraccion=modelo_extraccion,
+        )
+
+        # 6. Construir estructura de razones trazable
+        razones_completas = {
+            "modelo": "hybrid_gemini",
+            "version": "v2.0",
+            "puntaje_v1": res_v2["puntaje_v1"],
+            "puntaje_semantico": res_v2["puntaje_semantico"],
+            "puntaje_v2": res_v2["puntaje_v2"],
+            "temperatura_v2": res_v2["temperatura_v2"],
+            "modelo_extraccion": res_v2["modelo_extraccion"],
+            "version_extraccion": "1.0",
+            "razones_v1": res_v2.get("razones_v1") or res_v1.get("razones"),
+            "razones_semanticas": res_v2.get("razones_semanticas", []),
+        }
+
+        payload_puntaje = {
+            "lead_id": lead_id,
+            "probabilidad_comercial": None,
+            "puntaje_urgencia": None,
+            "puntaje_prioridad": res_v2["puntaje_v2"],
+            "temperatura": res_v2["temperatura_v2"],
+            "modelo_scoring": "hybrid_gemini",
+            "version_scoring": "v2.0",
+            "razones": razones_completas,
+            "puntuado_en": fecha_referencia or datetime.now(),
+        }
+
+        # 7. Persistir atómicamente en PostgreSQL
+        guardado = guardar_puntaje_v2_lead_trx(c, payload_puntaje)
         return guardado
 
     if conn is not None:

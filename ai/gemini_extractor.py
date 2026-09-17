@@ -109,7 +109,11 @@ def _convertir_a_lista_dicts(mensajes: Any) -> list[dict]:
 
 
 def _obtener_cliente_gemini(client: Any = None) -> Any:
-    """Instancia el cliente oficial de Gemini validando la presencia de GEMINI_API_KEY."""
+    """
+    Instancia el cliente oficial de Gemini validando la presencia de GEMINI_API_KEY.
+    Configura attempts=1 para evitar reintentos internos en errores de cuota (HTTP 429)
+    y permitir fallback inmediato a reglas.
+    """
     if client is not None:
         return client
 
@@ -118,7 +122,12 @@ def _obtener_cliente_gemini(client: Any = None) -> Any:
         raise ValueError("GEMINI_API_KEY no configurada o vacía en el entorno.")
 
     from google import genai
-    return genai.Client(api_key=api_key)
+    from google.genai import types
+
+    http_opts = types.HttpOptions(
+        retry_options=types.HttpRetryOptions(attempts=1)
+    )
+    return genai.Client(api_key=api_key, http_options=http_opts)
 
 
 def extraer_analisis_semantico_gemini(
@@ -237,7 +246,12 @@ def analizar_conversacion(
         )
 
     except Exception as exc:
-        logger.warning("Fallo en extracción Gemini, activando fallback a reglas: %s", exc)
+        exc_str = str(exc)
+        if "429" in exc_str or "quota" in exc_str.lower() or "too_many_requests" in exc_str.lower():
+            logger.warning("Cuota Gemini agotada (HTTP 429), activando fallback inmediato a reglas: %s", exc)
+        else:
+            logger.warning("Fallo en extracción Gemini, activando fallback a reglas: %s", exc)
+
         analisis_fallback = _crear_analisis_fallback(extraccion_reglas)
 
         return ResultadoExtraccion(
@@ -248,5 +262,5 @@ def analizar_conversacion(
             metodo_pago=extraccion_reglas.get("metodo_pago"),
             pago_inicial=extraccion_reglas.get("pago_inicial"),
             intencion_declarada=extraccion_reglas.get("intencion_declarada"),
-            error_detalle=str(exc)
+            error_detalle=exc_str
         )

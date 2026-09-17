@@ -118,3 +118,74 @@ def guardar_puntaje_lead_trx(conn: psycopg.Connection, puntaje_data: dict) -> di
             """, data)
 
     return data
+
+
+def guardar_puntaje_v2_lead_trx(conn: psycopg.Connection, puntaje_v2_data: dict) -> dict:
+    """
+    Guarda un nuevo score de prioridad V2 en core.puntajes_leads manteniendo la
+    regla de integridad y de histórico:
+    1. Desmarca cualquier score actual previo (ej. V1.0) para que pase a es_actual = FALSE.
+    2. Si ya existía un registro V2.0 para este lead, lo reemplaza/elimina para garantizar idempotencia.
+    3. Inserta el nuevo registro V2.0 con es_actual = TRUE.
+
+    Operación atómica dentro de conn.transaction().
+    """
+    lead_id = puntaje_v2_data["lead_id"]
+    razones = puntaje_v2_data.get("razones", {})
+    razones_json = json.dumps(razones, ensure_ascii=False) if isinstance(razones, dict) else razones
+
+    data = {
+        "lead_id": lead_id,
+        "probabilidad_comercial": puntaje_v2_data.get("probabilidad_comercial"),
+        "puntaje_urgencia": puntaje_v2_data.get("puntaje_urgencia"),
+        "puntaje_prioridad": puntaje_v2_data.get("puntaje_prioridad"),
+        "temperatura": puntaje_v2_data.get("temperatura"),
+        "modelo_scoring": puntaje_v2_data.get("modelo_scoring", "hybrid_gemini"),
+        "version_scoring": puntaje_v2_data.get("version_scoring", "v2.0"),
+        "razones": razones_json,
+        "puntuado_en": puntaje_v2_data.get("puntuado_en", datetime.now()),
+    }
+
+    with conn.transaction():
+        with conn.cursor() as cur:
+            # 1. Desmarcar score actual anterior si existe (ej. V1.0)
+            cur.execute("""
+                UPDATE core.puntajes_leads
+                SET es_actual = FALSE
+                WHERE lead_id = %s AND es_actual = TRUE;
+            """, (lead_id,))
+
+            # 2. Idempotencia: si ya existía V2.0 previo para este lead, eliminarlo para mantener unicidad
+            cur.execute("""
+                DELETE FROM core.puntajes_leads
+                WHERE lead_id = %s AND version_scoring = 'v2.0';
+            """, (lead_id,))
+
+            # 3. Insertar nuevo score V2 como actual
+            cur.execute("""
+                INSERT INTO core.puntajes_leads (
+                    lead_id,
+                    probabilidad_comercial,
+                    puntaje_urgencia,
+                    puntaje_prioridad,
+                    temperatura,
+                    modelo_scoring,
+                    version_scoring,
+                    razones,
+                    puntuado_en,
+                    es_actual
+                ) VALUES (
+                    %(lead_id)s,
+                    %(probabilidad_comercial)s,
+                    %(puntaje_urgencia)s,
+                    %(puntaje_prioridad)s,
+                    %(temperatura)s,
+                    %(modelo_scoring)s,
+                    %(version_scoring)s,
+                    %(razones)s,
+                    %(puntuado_en)s,
+                    TRUE
+                );
+            """, data)
+
+    return data

@@ -105,3 +105,18 @@ class ResultadoExtraccion(BaseModel):
         default=None,
         description="Detalle del error si se activó el fallback"
     )
+
+
+class ResultadoScoringV2(BaseModel):
+    """
+    Resultado estructurado de Scoring V2 (V1 + Señales Semánticas).
+    """
+    puntaje_v1: float = Field(..., description="Puntaje original V1 (0-100)")
+    puntaje_semantico: float = Field(..., description="Puntaje semántico ponderado (0-100)")
+    puntaje_v2: float = Field(..., description="Puntaje combinado V2 (0.70*V1 + 0.30*Semántico)")
+    temperatura_v2: str = Field(..., description="Temperatura comercial derivada de puntaje_v2")
+    modelo_extraccion: str = Field(default="gemini", description="Mecanismo de extracción usado")
+    version_scoring: str = Field(default="v2.0", description="Versión del modelo de scoring")
+    razones_semanticas: List[str] = Field(default_factory=list, description="Evidencia y justificación semántica")
+    analisis_semantico: Optional[AnalisisSemantico] = Field(default=None, description="Objeto de análisis semántico")
+    razones_v1: Optional[dict] = Field(default=None, description="Detalle de razones del scoring V1")
