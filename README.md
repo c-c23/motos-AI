@@ -11,7 +11,6 @@
 
 ---
 
-```markdown
 ## 1. Problema de Negocio
 
 En la comercialización de motocicletas a través de canales digitales, se reciben leads provenientes de conversaciones de WhatsApp, formularios de campañas de Meta y formularios del sitio web. Estos leads son gestionados actualmente desde una bandeja común y los asesores los contactan principalmente en orden de llegada (*First-In, First-Out* / FIFO).
