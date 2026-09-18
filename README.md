@@ -11,17 +11,33 @@
 
 ---
 
+```markdown
 ## 1. Problema de Negocio
 
-En la comercialización de motocicletas a través de canales digitales y redes de concesionarios, los equipos de ventas enfrentan una ineficiencia operativa crítica:
+En la comercialización de motocicletas a través de canales digitales, se reciben leads provenientes de conversaciones de WhatsApp, formularios de campañas de Meta y formularios del sitio web. Estos leads son gestionados actualmente desde una bandeja común y los asesores los contactan principalmente en orden de llegada (*First-In, First-Out* / FIFO).
 
-> **“Los asesores llaman al lead que llegó primero, no necesariamente al que presenta mayor probabilidad o intención real de compra.”**
+Este esquema presenta cuatro problemas principales:
 
-Este modelo tradicional basado en orden de llegada (*First-In, First-Out* / FIFO) ocasiona pérdidas comerciales sustanciales:
+1. **Priorización basada en orden de llegada:** los asesores atienden primero al lead que ingresó antes, sin contar con una priorización basada en señales de intención o probabilidad de compra.
 
-1. Prospectos con alta intención de compra, disponibilidad inmediata de cuota inicial o solicitud expresa de visita presencial pierden interés al no ser contactados oportunamente.
-2. Los asesores dedican tiempo valioso a llamadas con prospectos meramente exploratorios o sin presupuesto, saturando su jornada diaria.
-3. Asignación manual sin control de capacidad diaria.
+2. **Demora en la atención comercial:** aproximadamente cuatro de cada diez leads no son gestionados durante las primeras 24 horas, aumentando el riesgo de pérdida de oportunidades comerciales.
+
+3. **Información comercial no estructurada:** las conversaciones de WhatsApp contienen información relevante para la gestión —como la motocicleta de interés, disponibilidad de cuota inicial y modalidad de financiación—, pero estos datos no se incorporan de forma estructurada al CRM. Como consecuencia, el asesor debe reconstruir el contexto comercial durante la llamada.
+
+4. **Baja conversión del proceso comercial:** según el contexto proporcionado, se reciben más de 3.000 leads mensuales y se concreta menos de una venta por cada diez leads gestionados.
+
+### Necesidad de negocio
+
+El problema no consiste únicamente en aumentar el volumen de leads gestionados, sino en **priorizar y contextualizar la gestión comercial**. Para ello, se requiere transformar la información disponible en los leads y sus conversaciones en señales estructuradas que permitan:
+
+- identificar qué leads requieren atención prioritaria;
+- incorporar señales de intención, urgencia y avance comercial;
+- reducir la dependencia del orden de llegada como único criterio de atención;
+- proporcionar al asesor información relevante antes del contacto;
+- y distribuir los leads respetando las restricciones operativas de los puntos de venta y asesores.
+
+```
+
 
 ---
 
